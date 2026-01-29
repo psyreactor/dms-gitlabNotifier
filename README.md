@@ -55,7 +55,7 @@ This plugin requests:
 ## Requirements
 
 - `glab` CLI installed and configured (authenticated) and available in PATH or referenced via `glabBinary` setting.
-- Optional: `jq` is NOT required because the plugin parses JSON internally.
+- `Font Awesome` (e.g. Font Awesome 6 Free) — required so the plugin icon displays correctly.
 
 ## How it works
 
