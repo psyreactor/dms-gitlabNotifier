@@ -220,11 +220,6 @@ PluginComponent {
     }
 
     function fetchCounts() {
-        // reset first to avoid stale counts if a command fails
-        root.issuesCount = 0;
-        root.mrsCount = 0;
-        root.incidentsCount = 0;
-
         const r = (root.repo || "").trim();
         const g = (root.group || "").trim();
         const useGroup = g.length > 0;
@@ -334,14 +329,7 @@ PluginComponent {
                 font.weight: Font.Medium
                 color: root.lastError ? Theme.error : Theme.primary
                 anchors.verticalCenter: parent.verticalCenter
-                visible: !root.loading && root.totalCount > 0
-            }
-
-            StyledText {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "…"
-                visible: root.loading
-                color: Theme.surfaceVariantText
+                visible: root.totalCount > 0
             }
         }
     }
@@ -358,7 +346,7 @@ PluginComponent {
             }
 
             StyledText {
-                text: root.loading ? "…" : root.totalCount.toString()
+                text: root.totalCount.toString()
                 color: root.lastError ? Theme.error : Theme.surfaceText
                 font.pixelSize: Theme.fontSizeSmall
                 anchors.horizontalCenter: parent.horizontalCenter
