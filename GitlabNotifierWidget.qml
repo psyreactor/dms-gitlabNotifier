@@ -66,7 +66,6 @@ PluginComponent {
 
     function normalizeBaseUrl(url) {
         if (!url) return "https://gitlab.com";
-        // remove trailing slashes
         return url.replace(/\/+$/, "");
     }
 
@@ -79,6 +78,12 @@ PluginComponent {
         if (r)
             return base + "/" + r;
         return base;
+    }
+
+    function profileWebUrl() {
+        if (root.username)
+            return normalizeBaseUrl(root.gitlabWebUrl) + "/" + root.username;
+        return normalizeBaseUrl(root.gitlabWebUrl);
     }
 
     function openUrl(url) {
@@ -155,7 +160,6 @@ PluginComponent {
     }
 
     function loadUsername(cb) {
-        // Attempt to fetch the authenticated username from glab API
         Proc.runCommand("gitlabNotifier.getUser", [root.glabBinary, "api", "user", "--output", "json"], (stdout, exitCode) => {
             if (exitCode === 0 && stdout) {
                 try {
@@ -179,13 +183,11 @@ PluginComponent {
         const raw = (stdout || "").trim();
         if (!raw) return 0;
 
-        // 1) Try parse as full JSON
         try {
             const data = JSON.parse(raw);
             if (Array.isArray(data)) return data.length;
             if (Array.isArray(data.items)) return data.items.length;
             if (Array.isArray(data.data)) return data.data.length;
-            // If it's an object but contains count-like fields
             if (typeof data === "object" && data !== null) {
                 if (typeof data.total_count === "number") return data.total_count;
                 if (typeof data.total === "number") return data.total;
@@ -194,7 +196,6 @@ PluginComponent {
             // not a single JSON blob - continue to NDJSON attempt
         }
 
-        // 2) Try NDJSON (one JSON object per line)
         try {
             const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(s => s.length > 0);
             let count = 0;
@@ -212,7 +213,6 @@ PluginComponent {
             // ignore
         }
 
-        // 3) If output is a plain number (e.g., user piped through jq), return it
         const num = parseInt(raw, 10);
         if (!isNaN(num)) return num;
 
@@ -254,7 +254,6 @@ PluginComponent {
                 if (exitCode === 0) {
                     root.incidentsCount = parseJsonArrayLen(stdout);
                 } else {
-                    // If command exists but fails, avoid spamming errors; show soft warning.
                     root.incidentsCount = 0;
                 }
                 finish();
@@ -267,7 +266,6 @@ PluginComponent {
             if (!root.incidentsSupported && root.showIncidents) {
                 root.setError("Your glab version does not support incidents.");
             } else {
-                // keep lastError if previously set
                 if (root.lastError && root.lastError.indexOf("Configura el repo") === 0) {
                     // no-op
                 }
@@ -354,97 +352,280 @@ PluginComponent {
         }
     }
 
-    component StatRow: Row {
+    component StatRow: Item {
         property string title: ""
+        property string iconName: ""
         property int count: 0
         property string openUrl: ""
-        property bool enabled: true
+        property color accentColor: Theme.primary
 
         width: parent.width
-        spacing: Theme.spacingS
+        height: 40
 
-        StyledText {
-            text: title
-            color: Theme.surfaceText
-            font.pixelSize: Theme.fontSizeMedium
-            font.weight: Font.Medium
-            width: 120
-        }
+        Row {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Theme.spacingS
 
-        Badge {
-            value: count
-            label: ""
-            badgeColor: count > 0 ? Theme.primary : Theme.surfaceVariantText
-        }
-
-        // small spacer
-        Item { width: Theme.spacingS; height: 1 }
-
-        Rectangle {
-            width: 90
-            height: 30
-            radius: Theme.cornerRadius
-            color: openMouse.containsMouse ? Theme.surfaceContainerHighest : Theme.surfaceContainerHigh
-            visible: openUrl.length > 0 && enabled
-
-            Row {
-                anchors.centerIn: parent
-                spacing: Theme.spacingS
-                DankIcon { name: "open_in_new"; size: 18; color: Theme.primary; anchors.verticalCenter: parent.verticalCenter }
-                StyledText { text: "Open"; color: Theme.primary; font.pixelSize: Theme.fontSizeMedium; anchors.verticalCenter: parent.verticalCenter }
+            Rectangle {
+                width: 4
+                height: 22
+                radius: 2
+                color: accentColor
+                anchors.verticalCenter: parent.verticalCenter
             }
 
+            DankIcon {
+                name: iconName
+                size: 20
+                color: accentColor
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            StyledText {
+                text: title
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Bold
+                color: Theme.surfaceText
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Rectangle {
+                width: badgeText.width + 14
+                height: 20
+                radius: 10
+                color: Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.15)
+                anchors.verticalCenter: parent.verticalCenter
+
+                StyledText {
+                    id: badgeText
+                    text: count.toString()
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Font.Bold
+                    color: accentColor
+                    anchors.centerIn: parent
+                }
+            }
+        }
+
+        // Action button (View All)
+        Item {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: actionBtnRow.width + Theme.spacingM * 2
+            height: 30
+            visible: openUrl.length > 0 && count > 0
+            scale: actionBtnArea.pressed ? 0.95 : (actionBtnArea.containsMouse ? 1.05 : 1.0)
+            Behavior on scale { NumberAnimation { duration: 100 } }
+
             MouseArea {
-                id: openMouse
+                id: actionBtnArea
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.openUrl(parent.parent.openUrl)
+                onPressed: mouse => actionRipple.trigger(mouse.x, mouse.y)
+                onClicked: root.openUrl(openUrl)
+            }
+
+            Row {
+                id: actionBtnRow
+                anchors.centerIn: parent
+                spacing: Theme.spacingXS
+
+                DankIcon {
+                    id: actionIcon
+                    name: "open_in_new"
+                    size: 14
+                    color: actionBtnArea.containsMouse ? "white" : accentColor
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    SequentialAnimation {
+                        running: actionBtnArea.containsMouse
+                        loops: Animation.Infinite
+                        onStopped: actionIcon.rotation = 0
+                        NumberAnimation { target: actionIcon; property: "rotation"; from: 0; to: 10; duration: 50; easing.type: Easing.InOutQuad }
+                        NumberAnimation { target: actionIcon; property: "rotation"; from: 10; to: -10; duration: 100; easing.type: Easing.InOutQuad }
+                        NumberAnimation { target: actionIcon; property: "rotation"; from: -10; to: 0; duration: 50; easing.type: Easing.InOutQuad }
+                    }
+                }
+
+                StyledText {
+                    text: "View All"
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Font.Medium
+                    color: actionBtnArea.containsMouse ? "white" : accentColor
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+
+            DankRipple {
+                id: actionRipple
+                rippleColor: actionBtnArea.containsMouse ? "white" : accentColor
+                cornerRadius: Theme.cornerRadius
+                anchors.fill: parent
             }
         }
     }
 
     popoutContent: Component {
         Column {
-            anchors.fill: parent
-            anchors.margins: Theme.spacingXS
+            width: parent.width
             spacing: Theme.spacingM
+            topPadding: Theme.spacingM
+            bottomPadding: Theme.spacingM
 
-            Row {
+            // Header card
+            Item {
                 width: parent.width
-                spacing: Theme.spacingM
+                height: 68
 
-                StyledText {
-                    text: root.faGitlabGlyph
-                    font.family: root.faFamily
-                    font.pixelSize: 26
-                    color: Theme.primary
-                    anchors.verticalCenter: parent.verticalCenter
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Theme.cornerRadius * 1.5
+                    gradient: Gradient {
+                        GradientStop {
+                            position: 0.0
+                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                        }
+                        GradientStop {
+                            position: 1.0
+                            color: Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.08)
+                        }
+                    }
+                    border.width: 1
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.25)
                 }
 
-                Column {
+                Row {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacingM
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: 2
+                    spacing: Theme.spacingM
 
-                    StyledText {
-                        text: "GitLab Notifier"
-                        font.bold: true
-                        font.pixelSize: Theme.fontSizeLarge
-                        color: Theme.surfaceText
+                    // GitLab logo button
+                    Item {
+                        width: 40
+                        height: 40
+                        anchors.verticalCenter: parent.verticalCenter
+                        scale: profileArea.pressed ? 0.9 : (profileArea.containsMouse ? 1.1 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+
+                        MouseArea {
+                            id: profileArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onPressed: mouse => profileRipple.trigger(mouse.x, mouse.y)
+                            onClicked: root.openUrl(root.profileWebUrl())
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 20
+                            color: profileArea.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                        }
+
+                        StyledText {
+                            text: root.faGitlabGlyph
+                            font.family: root.faFamily
+                            font.pixelSize: 22
+                            color: Theme.primary
+                            anchors.centerIn: parent
+                            scale: profileArea.containsMouse ? 1.2 : 1.0
+                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                        }
+
+                        DankRipple {
+                            id: profileRipple
+                            rippleColor: Theme.surfaceText
+                            cornerRadius: 20
+                            anchors.fill: parent
+                        }
                     }
 
-                    StyledText {
-                        text: root.group
-                              ? ("Group: " + root.group)
-                              : (root.repo ? ("Repo: " + root.repo) : "No Group/Repo configured")
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
-                        elide: Text.ElideRight
-                        width: parent.width
+                    Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 2
+
+                        StyledText {
+                            text: "GitLab Notifier"
+                            font.bold: true
+                            font.pixelSize: Theme.fontSizeLarge
+                            color: Theme.surfaceText
+                        }
+
+                        StyledText {
+                            text: root.group
+                                  ? ("Group: " + root.group)
+                                  : (root.repo ? ("Repo: " + root.repo) : "No Group/Repo configured")
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceVariantText
+                        }
+                    }
+                }
+
+                // Refresh button
+                Item {
+                    width: 38
+                    height: 38
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.spacingM
+                    anchors.verticalCenter: parent.verticalCenter
+                    scale: refreshArea.pressed ? 0.9 : (refreshArea.containsMouse ? 1.1 : 1.0)
+                    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+
+                    MouseArea {
+                        id: refreshArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onPressed: mouse => refreshRipple.trigger(mouse.x, mouse.y)
+                        onClicked: root.refresh()
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: Theme.cornerRadius
+                        color: refreshArea.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.4)
+                        border.width: 1
+                        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, refreshArea.containsMouse ? 0.3 : 0.15)
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                        Behavior on border.color { ColorAnimation { duration: 150 } }
+                    }
+
+                    DankIcon {
+                        id: refreshIcon
+                        name: "refresh"
+                        size: 20
+                        color: Theme.primary
+                        anchors.centerIn: parent
+
+                        SequentialAnimation {
+                            running: refreshArea.containsMouse && !root.loading
+                            onStopped: refreshIcon.rotation = 0
+                            NumberAnimation { target: refreshIcon; property: "rotation"; from: 0; to: 360; duration: 400; easing.type: Easing.InOutQuart }
+                            NumberAnimation { target: refreshIcon; property: "rotation"; from: 360; to: 0; duration: 400; easing.type: Easing.InOutQuart }
+                        }
+
+                        RotationAnimation on rotation {
+                            from: 0
+                            to: 360
+                            duration: 1000
+                            loops: Animation.Infinite
+                            running: root.loading
+                        }
+                    }
+
+                    DankRipple {
+                        id: refreshRipple
+                        rippleColor: Theme.surfaceText
+                        cornerRadius: Theme.cornerRadius
+                        anchors.fill: parent
                     }
                 }
             }
 
+            // Error container
             StyledRect {
                 width: parent.width
                 height: root.lastError ? 60 : 0
@@ -463,40 +644,157 @@ PluginComponent {
                 }
             }
 
+            // Issues section
             StatRow {
                 title: "Issues"
+                iconName: "bug_report"
                 count: root.issuesCount
-                enabled: root.showIssues
                 openUrl: root.scopeWebBase() + "/-/issues?state=opened&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
+                accentColor: Theme.primary
                 visible: root.showIssues
             }
 
+            StyledRect {
+                width: parent.width
+                height: (root.loading || root.issuesCount === 0) ? 54 : 0
+                radius: Theme.cornerRadius * 1.5
+                color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
+                border.width: 1
+                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                visible: root.showIssues
+                clip: true
+                Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+                    visible: root.loading
+
+                    DankIcon {
+                        name: "sync"
+                        size: 16
+                        color: Theme.primary
+                        anchors.verticalCenter: parent.verticalCenter
+                        RotationAnimation on rotation {
+                            from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.visible
+                        }
+                    }
+                    StyledText { text: "Checking..."; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+                    visible: !root.loading && root.issuesCount === 0
+
+                    DankIcon { name: "check_circle"; size: 16; color: Theme.primary; anchors.verticalCenter: parent.verticalCenter }
+                    StyledText { text: "No active issues"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+            }
+
+            // Merge Requests section
             StatRow {
                 title: "Merge Requests"
+                iconName: "merge_type"
                 count: root.mrsCount
-                enabled: root.showMRs
                 openUrl: root.scopeWebBase() + "/-/merge_requests?state=opened&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
+                accentColor: Theme.secondary
                 visible: root.showMRs
             }
 
+            StyledRect {
+                width: parent.width
+                height: (root.loading || root.mrsCount === 0) ? 54 : 0
+                radius: Theme.cornerRadius * 1.5
+                color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
+                border.width: 1
+                border.color: Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.1)
+                visible: root.showMRs
+                clip: true
+                Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+                    visible: root.loading
+
+                    DankIcon {
+                        name: "sync"
+                        size: 16
+                        color: Theme.secondary
+                        anchors.verticalCenter: parent.verticalCenter
+                        RotationAnimation on rotation {
+                            from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.visible
+                        }
+                    }
+                    StyledText { text: "Checking..."; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+                    visible: !root.loading && root.mrsCount === 0
+
+                    DankIcon { name: "check_circle"; size: 16; color: Theme.secondary; anchors.verticalCenter: parent.verticalCenter }
+                    StyledText { text: "No active merge requests"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+            }
+
+            // Incidents section
             StatRow {
                 title: "Incidents"
+                iconName: "warning"
                 count: root.incidentsCount
-                enabled: root.showIncidents && root.incidentsSupported
                 openUrl: root.scopeWebBase() + "/-/issues?state=opened&type[]=INCIDENT&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
+                accentColor: Theme.primary
                 visible: root.showIncidents
             }
 
-            // bottom spacing
+            StyledRect {
+                width: parent.width
+                height: (root.loading || root.incidentsCount === 0) ? 54 : 0
+                radius: Theme.cornerRadius * 1.5
+                color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
+                border.width: 1
+                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                visible: root.showIncidents && root.incidentsSupported
+                clip: true
+                Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+                    visible: root.loading
+
+                    DankIcon {
+                        name: "sync"
+                        size: 16
+                        color: Theme.primary
+                        anchors.verticalCenter: parent.verticalCenter
+                        RotationAnimation on rotation {
+                            from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.visible
+                        }
+                    }
+                    StyledText { text: "Checking..."; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+                    visible: !root.loading && root.incidentsCount === 0
+
+                    DankIcon { name: "check_circle"; size: 16; color: Theme.primary; anchors.verticalCenter: parent.verticalCenter }
+                    StyledText { text: "No active incidents"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+            }
+
             Item {
                 width: parent.width
-                height: Theme.spacingM
+                height: Theme.spacingXS
             }
         }
     }
 
-    // Popup narrow and with a bit of bottom padding
-    popoutWidth: 300
-    popoutHeight: 380
+    popoutWidth: 320
+    popoutHeight: 0
 }
-
