@@ -95,11 +95,6 @@ PluginComponent {
         root.closePopout();
     }
 
-    function openSettings() {
-        Quickshell.execDetached(["dms", "ipc", "call", "settings", "openWith", "plugins"]);
-        root.closePopout();
-    }
-
     function setError(msg) {
         root.lastError = msg || "";
     }
@@ -526,6 +521,7 @@ PluginComponent {
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.surfaceText
                     elide: Text.ElideRight
+                    wrapMode: Text.NoWrap
                 }
 
                 StyledText {
@@ -592,6 +588,7 @@ PluginComponent {
                     font.pixelSize: Theme.fontSizeSmall
                     color: Theme.surfaceText
                     elide: Text.ElideRight
+                    wrapMode: Text.NoWrap
                 }
 
                 StyledText {
@@ -663,6 +660,7 @@ PluginComponent {
                         font.pixelSize: Theme.fontSizeSmall
                         color: Theme.surfaceText
                         elide: Text.ElideRight
+                        wrapMode: Text.NoWrap
                     }
 
                     StyledText {
@@ -676,7 +674,7 @@ PluginComponent {
                 DankIcon {
                     id: mergeableIcon
                     name: "check_circle"
-                    size: 20
+                    size: 14
                     color: Theme.success
                     anchors.verticalCenter: parent.verticalCenter
                     visible: mrData && mrData.detailed_merge_status === "mergeable"
