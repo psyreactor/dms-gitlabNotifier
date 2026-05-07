@@ -17,9 +17,6 @@ PluginComponent {
     property string gitlabWebUrl: pluginData.gitlabWebUrl || "https://gitlab.com"
     property int refreshInterval: pluginData.refreshInterval || 60 // seconds
 
-    // Font Awesome icon config (GitLab brand icon)
-    property string faGitlabGlyph: "\uf296" // Font Awesome GitLab (brands)
-    property string faFamily: "Font Awesome 6 Brands, Font Awesome 5 Brands, Font Awesome 6 Free, Font Awesome 5 Free"
     function asBool(v, defaultValue) {
         if (v === undefined || v === null)
             return defaultValue;
@@ -309,12 +306,12 @@ PluginComponent {
     horizontalBarPill: Component {
         Row {
             spacing: Theme.spacingXS
-            StyledText {
-                text: root.faGitlabGlyph
-                font.family: root.faFamily
-                font.pixelSize: Theme.iconSize - 7
-                color: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
+
+            DankSVGIcon {
+                source: Qt.resolvedUrl("gitlab.svg")
+                size: Theme.iconSize - 7
                 anchors.verticalCenter: parent.verticalCenter
+                colorOverride: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
             }
 
             StyledText {
@@ -332,12 +329,12 @@ PluginComponent {
     verticalBarPill: Component {
         Column {
             spacing: 2
-            StyledText {
-                text: root.faGitlabGlyph
-                font.family: root.faFamily
-                font.pixelSize: 20
-                color: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
+
+            DankSVGIcon {
+                source: Qt.resolvedUrl("gitlab.svg")
+                size: Theme.iconSize - 7
                 anchors.horizontalCenter: parent.horizontalCenter
+                colorOverride: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
             }
 
             StyledText {
@@ -521,15 +518,12 @@ PluginComponent {
                             border.width: profileArea.containsMouse ? 2 : 0
                             border.color: Theme.primary
 
-                            StyledText {
-                                text: root.faGitlabGlyph
-                                font.family: root.faFamily
-                                font.pixelSize: 22
-                                color: Theme.primary
+                            DankSVGIcon {
+                                source: Qt.resolvedUrl("gitlab.svg")
+                                size: 22
                                 anchors.centerIn: parent
-                                visible: !root.avatarUrl
-                                scale: profileArea.containsMouse ? 1.2 : 1.0
-                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                                colorOverride: Theme.primary
+                                visible: parent.imageStatus !== Image.Ready
                             }
                         }
 
