@@ -474,26 +474,15 @@ PluginComponent {
         width: ListView.view.width
         height: 40
 
-        scale: incidentItemArea.pressed ? 0.98 : 1.0
+        scale: incidentStateLayer.pressed ? 0.98 : 1.0
         Behavior on scale { NumberAnimation { duration: 100 } }
 
-        MouseArea {
-            id: incidentItemArea
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onPressed: mouse => incidentItemRipple.trigger(mouse.x, mouse.y)
+        StateLayer {
+            id: incidentStateLayer
+            stateColor: accentColor
+            cornerRadius: Theme.cornerRadius
             onClicked: root.openUrl(incidentData.web_url)
         }
-
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: 2
-            radius: Theme.cornerRadius
-            color: incidentItemArea.containsMouse ? Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.08) : "transparent"
-        }
-
-        DankRipple { id: incidentItemRipple; rippleColor: accentColor; cornerRadius: Theme.cornerRadius }
 
         Row {
             anchors.left: parent.left
@@ -541,26 +530,15 @@ PluginComponent {
         width: ListView.view.width
         height: 40
 
-        scale: issueItemArea.pressed ? 0.98 : 1.0
+        scale: issueStateLayer.pressed ? 0.98 : 1.0
         Behavior on scale { NumberAnimation { duration: 100 } }
 
-        MouseArea {
-            id: issueItemArea
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onPressed: mouse => issueItemRipple.trigger(mouse.x, mouse.y)
+        StateLayer {
+            id: issueStateLayer
+            stateColor: accentColor
+            cornerRadius: Theme.cornerRadius
             onClicked: root.openUrl(issueData.web_url)
         }
-
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: 2
-            radius: Theme.cornerRadius
-            color: issueItemArea.containsMouse ? Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.08) : "transparent"
-        }
-
-        DankRipple { id: issueItemRipple; rippleColor: accentColor; cornerRadius: Theme.cornerRadius }
 
         Row {
             anchors.left: parent.left
@@ -608,26 +586,15 @@ PluginComponent {
         width: ListView.view.width
         height: 40
 
-        scale: mrItemArea.pressed ? 0.98 : 1.0
+        scale: mrStateLayer.pressed ? 0.98 : 1.0
         Behavior on scale { NumberAnimation { duration: 100 } }
 
-        MouseArea {
-            id: mrItemArea
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onPressed: mouse => mrItemRipple.trigger(mouse.x, mouse.y)
+        StateLayer {
+            id: mrStateLayer
+            stateColor: accentColor
+            cornerRadius: Theme.cornerRadius
             onClicked: root.openUrl(mrData.web_url)
         }
-
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: 2
-            radius: Theme.cornerRadius
-            color: mrItemArea.containsMouse ? Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.08) : "transparent"
-        }
-
-        DankRipple { id: mrItemRipple; rippleColor: accentColor; cornerRadius: Theme.cornerRadius }
 
         Row {
             anchors.left: parent.left
@@ -814,7 +781,6 @@ PluginComponent {
                         name: "refresh"
                         size: 20
                         color: Theme.primary
-                        anchors.centerIn: parent
 
                         SequentialAnimation {
                             running: refreshArea.containsMouse && !root.loading
@@ -908,7 +874,7 @@ PluginComponent {
                     StyledText { text: "No active issues"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
                 }
 
-                ListView {
+                DankListView {
                     anchors.fill: parent
                     anchors.topMargin: 14
                     anchors.bottomMargin: 14
@@ -973,7 +939,7 @@ PluginComponent {
                     StyledText { text: "No active merge requests"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
                 }
 
-                ListView {
+                DankListView {
                     anchors.fill: parent
                     anchors.topMargin: 14
                     anchors.bottomMargin: 14
@@ -1038,7 +1004,7 @@ PluginComponent {
                     StyledText { text: "No active incidents"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
                 }
 
-                ListView {
+                DankListView {
                     anchors.fill: parent
                     anchors.topMargin: 14
                     anchors.bottomMargin: 14
