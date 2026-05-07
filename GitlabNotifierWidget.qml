@@ -781,6 +781,7 @@ PluginComponent {
                         name: "refresh"
                         size: 20
                         color: Theme.primary
+                        anchors.centerIn: parent
 
                         SequentialAnimation {
                             running: refreshArea.containsMouse && !root.loading
