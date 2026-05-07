@@ -504,8 +504,6 @@ PluginComponent {
                         width: 40
                         height: 40
                         anchors.verticalCenter: parent.verticalCenter
-                        scale: profileArea.pressed ? 0.9 : (profileArea.containsMouse ? 1.1 : 1.0)
-                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
 
                         MouseArea {
                             id: profileArea
