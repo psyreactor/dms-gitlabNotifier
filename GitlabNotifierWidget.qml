@@ -47,6 +47,10 @@ PluginComponent {
     property int mrsCount: 0
     property int incidentsCount: 0
 
+    property var issueList: []
+    property var mrList: []
+    property var incidentList: []
+
     readonly property int totalCount: (showIssues ? issuesCount : 0) + (showMRs ? mrsCount : 0) + (showIncidents ? incidentsCount : 0)
 
     Timer {
@@ -115,6 +119,9 @@ PluginComponent {
             root.issuesCount = 0;
             root.mrsCount = 0;
             root.incidentsCount = 0;
+            root.issueList = [];
+            root.mrList = [];
+            root.incidentList = [];
             return;
         }
 
@@ -128,6 +135,9 @@ PluginComponent {
                 root.issuesCount = 0;
                 root.mrsCount = 0;
                 root.incidentsCount = 0;
+                root.issueList = [];
+                root.mrList = [];
+                root.incidentList = [];
                 root.setError("Could not execute glab. Is it installed and in PATH?");
                 return;
             }
@@ -141,6 +151,9 @@ PluginComponent {
                     root.issuesCount = 0;
                     root.mrsCount = 0;
                     root.incidentsCount = 0;
+                    root.issueList = [];
+                    root.mrList = [];
+                    root.incidentList = [];
                     root.setError("glab is not authenticated. Run: glab auth login");
                     return;
                 }
@@ -177,6 +190,20 @@ PluginComponent {
             }
             if (typeof cb === "function") Qt.callLater(cb);
         }, 2000);
+    }
+
+    function parseGitLabList(stdout) {
+        const raw = (stdout || "").trim();
+        if (!raw) return [];
+        try {
+            const data = JSON.parse(raw);
+            if (Array.isArray(data)) return data;
+            if (data && Array.isArray(data.items)) return data.items;
+            if (data && Array.isArray(data.data)) return data.data;
+            return [];
+        } catch (e) {
+            return [];
+        }
     }
 
     function parseJsonArrayLen(stdout) {
@@ -232,10 +259,14 @@ PluginComponent {
             if (!root.showMRs) return nextAfterMrs();
             Proc.runCommand(
                         "gitlabNotifier.mrList",
-                        [root.glabBinary, "mr", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--output", "json"]),
+                        [root.glabBinary, "mr", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--per-page", "15", "--output", "json"]),
                         (stdout, exitCode) => {
                 if (exitCode === 0) {
-                    root.mrsCount = parseJsonArrayLen(stdout);
+                    root.mrList = parseGitLabList(stdout);
+                    root.mrsCount = root.mrList.length;
+                } else {
+                    root.mrList = [];
+                    root.mrsCount = 0;
                 }
                 nextAfterMrs();
             }, 500);
@@ -244,16 +275,19 @@ PluginComponent {
         const nextAfterMrs = () => {
             if (!root.showIncidents) return finish();
             if (!root.incidentsSupported) {
+                root.incidentList = [];
                 root.incidentsCount = 0;
                 return finish();
             }
             Proc.runCommand(
                         "gitlabNotifier.incidentList",
-                        [root.glabBinary, "incident", "list"].concat(scopeArgs()).concat(["--assignee=@me","--output", "json"]),
+                        [root.glabBinary, "incident", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--per-page", "15", "--output", "json"]),
                         (stdout, exitCode) => {
                 if (exitCode === 0) {
-                    root.incidentsCount = parseJsonArrayLen(stdout);
+                    root.incidentList = parseGitLabList(stdout);
+                    root.incidentsCount = root.incidentList.length;
                 } else {
+                    root.incidentList = [];
                     root.incidentsCount = 0;
                 }
                 finish();
@@ -275,10 +309,14 @@ PluginComponent {
         if (root.showIssues) {
             Proc.runCommand(
                         "gitlabNotifier.issueList",
-                        [root.glabBinary, "issue", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--output", "json"]),
+                        [root.glabBinary, "issue", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--per-page", "15", "--output", "json"]),
                         (stdout, exitCode) => {
                 if (exitCode === 0) {
-                    root.issuesCount = parseJsonArrayLen(stdout);
+                    root.issueList = parseGitLabList(stdout);
+                    root.issuesCount = root.issueList.length;
+                } else {
+                    root.issueList = [];
+                    root.issuesCount = 0;
                 }
                 nextAfterIssues();
             }, 500);
@@ -463,6 +501,72 @@ PluginComponent {
                 rippleColor: actionBtnArea.containsMouse ? "white" : accentColor
                 cornerRadius: Theme.cornerRadius
                 anchors.fill: parent
+            }
+        }
+    }
+
+    component GitLabItem: Item {
+        property var itemData: null
+        property color accentColor: Theme.primary
+
+        width: ListView.view.width
+        height: 40
+
+        scale: itemArea.pressed ? 0.98 : 1.0
+        Behavior on scale { NumberAnimation { duration: 100 } }
+
+        MouseArea {
+            id: itemArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onPressed: mouse => itemRipple.trigger(mouse.x, mouse.y)
+            onClicked: if (itemData) root.openUrl(itemData.web_url)
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 2
+            radius: Theme.cornerRadius
+            color: itemArea.containsMouse ? Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.08) : "transparent"
+        }
+
+        DankRipple { id: itemRipple; rippleColor: accentColor; cornerRadius: Theme.cornerRadius }
+
+        Row {
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.spacingM
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.spacingM
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Theme.spacingS
+
+            DankIcon {
+                name: "subdirectory_arrow_right"
+                size: 14
+                color: accentColor
+                opacity: 0.6
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Column {
+                width: parent.width - 20
+                anchors.verticalCenter: parent.verticalCenter
+
+                StyledText {
+                    width: parent.width
+                    text: itemData ? (itemData.title || "") : ""
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceText
+                    elide: Text.ElideRight
+                }
+
+                StyledText {
+                    text: itemData && itemData.references ? (itemData.references.full || itemData.references.short || "") : ""
+                    font.pixelSize: Theme.fontSizeSmall - 2
+                    color: Theme.surfaceVariantText
+                    opacity: 0.8
+                }
             }
         }
     }
@@ -656,7 +760,7 @@ PluginComponent {
 
             StyledRect {
                 width: parent.width
-                height: (root.loading || root.issuesCount === 0) ? 54 : 0
+                height: root.loading ? 54 : (root.issueList.length > 0 ? Math.min(root.issueList.length * 40 + (root.issueList.length - 1) * 6 + 28, 300) : 54)
                 radius: Theme.cornerRadius * 1.5
                 color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
                 border.width: 1
@@ -685,10 +789,26 @@ PluginComponent {
                 Row {
                     anchors.centerIn: parent
                     spacing: Theme.spacingS
-                    visible: !root.loading && root.issuesCount === 0
+                    visible: !root.loading && root.issueList.length === 0
 
                     DankIcon { name: "check_circle"; size: 16; color: Theme.primary; anchors.verticalCenter: parent.verticalCenter }
                     StyledText { text: "No active issues"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                ListView {
+                    anchors.fill: parent
+                    anchors.topMargin: 14
+                    anchors.bottomMargin: 14
+                    anchors.leftMargin: Theme.spacingS
+                    anchors.rightMargin: Theme.spacingS
+                    spacing: 6
+                    model: root.issueList
+                    clip: true
+                    visible: !root.loading && root.issueList.length > 0
+                    delegate: GitLabItem {
+                        itemData: modelData
+                        accentColor: Theme.primary
+                    }
                 }
             }
 
@@ -704,7 +824,7 @@ PluginComponent {
 
             StyledRect {
                 width: parent.width
-                height: (root.loading || root.mrsCount === 0) ? 54 : 0
+                height: root.loading ? 54 : (root.mrList.length > 0 ? Math.min(root.mrList.length * 40 + (root.mrList.length - 1) * 6 + 28, 300) : 54)
                 radius: Theme.cornerRadius * 1.5
                 color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
                 border.width: 1
@@ -733,10 +853,26 @@ PluginComponent {
                 Row {
                     anchors.centerIn: parent
                     spacing: Theme.spacingS
-                    visible: !root.loading && root.mrsCount === 0
+                    visible: !root.loading && root.mrList.length === 0
 
                     DankIcon { name: "check_circle"; size: 16; color: Theme.secondary; anchors.verticalCenter: parent.verticalCenter }
                     StyledText { text: "No active merge requests"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                ListView {
+                    anchors.fill: parent
+                    anchors.topMargin: 14
+                    anchors.bottomMargin: 14
+                    anchors.leftMargin: Theme.spacingS
+                    anchors.rightMargin: Theme.spacingS
+                    spacing: 6
+                    model: root.mrList
+                    clip: true
+                    visible: !root.loading && root.mrList.length > 0
+                    delegate: GitLabItem {
+                        itemData: modelData
+                        accentColor: Theme.secondary
+                    }
                 }
             }
 
@@ -752,7 +888,7 @@ PluginComponent {
 
             StyledRect {
                 width: parent.width
-                height: (root.loading || root.incidentsCount === 0) ? 54 : 0
+                height: root.loading ? 54 : (root.incidentList.length > 0 ? Math.min(root.incidentList.length * 40 + (root.incidentList.length - 1) * 6 + 28, 300) : 54)
                 radius: Theme.cornerRadius * 1.5
                 color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
                 border.width: 1
@@ -781,10 +917,26 @@ PluginComponent {
                 Row {
                     anchors.centerIn: parent
                     spacing: Theme.spacingS
-                    visible: !root.loading && root.incidentsCount === 0
+                    visible: !root.loading && root.incidentList.length === 0
 
                     DankIcon { name: "check_circle"; size: 16; color: Theme.primary; anchors.verticalCenter: parent.verticalCenter }
                     StyledText { text: "No active incidents"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
+                }
+
+                ListView {
+                    anchors.fill: parent
+                    anchors.topMargin: 14
+                    anchors.bottomMargin: 14
+                    anchors.leftMargin: Theme.spacingS
+                    anchors.rightMargin: Theme.spacingS
+                    spacing: 6
+                    model: root.incidentList
+                    clip: true
+                    visible: !root.loading && root.incidentList.length > 0
+                    delegate: GitLabItem {
+                        itemData: modelData
+                        accentColor: Theme.primary
+                    }
                 }
             }
 
