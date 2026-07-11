@@ -17,9 +17,6 @@ PluginComponent {
     property string gitlabWebUrl: pluginData.gitlabWebUrl || "https://gitlab.com"
     property int refreshInterval: pluginData.refreshInterval || 60 // seconds
 
-    // Font Awesome icon config (GitLab brand icon)
-    property string faGitlabGlyph: "\uf296" // Font Awesome GitLab (brands)
-    property string faFamily: "Font Awesome 6 Brands, Font Awesome 5 Brands, Font Awesome 6 Free, Font Awesome 5 Free"
     function asBool(v, defaultValue) {
         if (v === undefined || v === null)
             return defaultValue;
@@ -34,6 +31,7 @@ PluginComponent {
     property bool showMRs: asBool(pluginData.showMRs, true)
     property bool showIncidents: asBool(pluginData.showIncidents, true)
     property string username: ""
+    property string avatarUrl: ""
 
     // State
     property bool loading: false
@@ -155,12 +153,11 @@ PluginComponent {
                 if (root.showIncidents) {
                     Proc.runCommand("gitlabNotifier.incidentHelp", [root.glabBinary, "incident", "--help"], (helpOut, helpExit) => {
                         root.incidentsSupported = helpExit === 0;
-                        root.loadUsername(root.fetchCounts);
                     }, 200);
                 } else {
                     root.incidentsSupported = true;
-                    root.loadUsername(root.fetchCounts);
                 }
+                root.loadUsername(root.fetchCounts);
             }, 400);
         }, 300);
     }
@@ -172,14 +169,11 @@ PluginComponent {
                     const data = JSON.parse(stdout.trim());
                     if (data && (data.username || data.login)) {
                         root.username = data.username || data.login || "";
-                    } else {
-                        root.username = "";
+                        root.avatarUrl = data.avatar_url || "";
                     }
                 } catch (e) {
                     root.username = "";
                 }
-            } else {
-                root.username = "";
             }
             if (typeof cb === "function") Qt.callLater(cb);
         }, 2000);
@@ -312,12 +306,12 @@ PluginComponent {
     horizontalBarPill: Component {
         Row {
             spacing: Theme.spacingXS
-            StyledText {
-                text: root.faGitlabGlyph
-                font.family: root.faFamily
-                font.pixelSize: Theme.iconSize - 7
-                color: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
+
+            DankSVGIcon {
+                source: Qt.resolvedUrl("gitlab.svg")
+                size: Theme.iconSize - 7
                 anchors.verticalCenter: parent.verticalCenter
+                colorOverride: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
             }
 
             StyledText {
@@ -335,12 +329,12 @@ PluginComponent {
     verticalBarPill: Component {
         Column {
             spacing: 2
-            StyledText {
-                text: root.faGitlabGlyph
-                font.family: root.faFamily
-                font.pixelSize: 20
-                color: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
+
+            DankSVGIcon {
+                source: Qt.resolvedUrl("gitlab.svg")
+                size: Theme.iconSize - 7
                 anchors.horizontalCenter: parent.horizontalCenter
+                colorOverride: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
             }
 
             StyledText {
@@ -690,8 +684,6 @@ PluginComponent {
                         width: 40
                         height: 40
                         anchors.verticalCenter: parent.verticalCenter
-                        scale: profileArea.pressed ? 0.9 : (profileArea.containsMouse ? 1.1 : 1.0)
-                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
 
                         MouseArea {
                             id: profileArea
@@ -702,20 +694,20 @@ PluginComponent {
                             onClicked: root.openUrl(root.profileWebUrl())
                         }
 
-                        Rectangle {
+                        DankCircularImage {
                             anchors.fill: parent
-                            radius: 20
-                            color: profileArea.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
-                        }
+                            imageSource: root.avatarUrl
+                            fallbackIcon: ""
+                            border.width: profileArea.containsMouse ? 2 : 0
+                            border.color: Theme.primary
 
-                        StyledText {
-                            text: root.faGitlabGlyph
-                            font.family: root.faFamily
-                            font.pixelSize: 22
-                            color: Theme.primary
-                            anchors.centerIn: parent
-                            scale: profileArea.containsMouse ? 1.2 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                            DankSVGIcon {
+                                source: Qt.resolvedUrl("gitlab.svg")
+                                size: 22
+                                anchors.centerIn: parent
+                                colorOverride: Theme.primary
+                                visible: parent.imageStatus !== Image.Ready
+                            }
                         }
 
                         DankRipple {
@@ -731,7 +723,7 @@ PluginComponent {
                         spacing: 2
 
                         StyledText {
-                            text: "GitLab Notifier"
+                            text: root.username ? root.username : "GitLab Notifier"
                             font.bold: true
                             font.pixelSize: Theme.fontSizeLarge
                             color: Theme.surfaceText
