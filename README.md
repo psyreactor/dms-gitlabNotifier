@@ -7,7 +7,7 @@ Shows a compact badge in the DankBar with counts for Issues, Merge Requests and 
 ## Features
 
 - Badge in the bar showing the total count (issues + MRs + incidents)
-- Popup with separate counts and "open in browser" links
+- Popup listing individual issues, merge requests and incidents (clickable) with counts and "open in browser" links
 - Scope can be configured per Group (`--group`) or per Repo (`--repo`)
 - Uses the authenticated `glab` user for links (retrieved via `glab api user`)
 - Configurable refresh interval and what to count (issues/mrs/incidents)
@@ -74,3 +74,7 @@ The widget parses JSON, supports NDJSON and numeric output, and falls back grace
 - If counts are zero but the CLI shows results, check `glabBinary` setting and ensure `glab` works in a terminal: `glab issue list --group <group> --assignee=@me --output json`  
 - If `glab` is not authenticated, run: `glab auth login`
 - If your `glab` version lacks `incident`, the incidents count will be skipped and a warning will be shown in the popup.
+
+## Contributors
+
+- [Thomas Philippot (@Thomas-Philippot)](https://github.com/Thomas-Philippot) — issue/MR/incident lists in the popup
