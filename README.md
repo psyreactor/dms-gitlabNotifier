@@ -10,6 +10,7 @@ Shows a compact badge in the DankBar with counts for Issues, Merge Requests and 
 - Popup listing individual issues, merge requests and incidents (clickable) with counts and "open in browser" links
 - Scope can be configured per Group (`--group`) or per Repo (`--repo`)
 - Uses the authenticated `glab` user for links (retrieved via `glab api user`)
+- Popup header shows your GitLab username and avatar
 - Configurable refresh interval and what to count (issues/mrs/incidents)
 
 ## Installation
@@ -43,6 +44,7 @@ Then enable the plugin via DMS Settings → Plugins and add the `gitlabNotifier`
 - `plugin.json` — plugin manifest
 - `GitlabNotifierWidget.qml` — main widget and popup implementation
 - `GitlabNotifierSettings.qml` — settings UI
+- `gitlab.svg` — bundled GitLab icon used in the bar and popup header
 - `README.md` — this file
 
 ## Permissions
@@ -55,7 +57,6 @@ This plugin requests:
 ## Requirements
 
 - `glab` CLI installed and configured (authenticated) and available in PATH or referenced via `glabBinary` setting.
-- `Font Awesome` (e.g. Font Awesome 6 Free) — required so the plugin icon displays correctly.
 
 ## How it works
 
@@ -77,4 +78,4 @@ The widget parses JSON, supports NDJSON and numeric output, and falls back grace
 
 ## Contributors
 
-- [Thomas Philippot (@Thomas-Philippot)](https://github.com/Thomas-Philippot) — issue/MR/incident lists in the popup
+- [Thomas Philippot (@Thomas-Philippot)](https://github.com/Thomas-Philippot) — issue/MR/incident lists in the popup; username and avatar in the header
