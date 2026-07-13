@@ -35,6 +35,7 @@ PluginComponent {
 
     // State
     property bool loading: false
+    property bool refreshPending: false
     property string lastError: ""
     property string lastUpdate: ""
     property bool glabOk: true
@@ -97,7 +98,21 @@ PluginComponent {
         root.lastError = msg || "";
     }
 
+    function completeRefresh() {
+        const shouldRefresh = root.refreshPending;
+        root.refreshPending = false;
+        root.loading = false;
+
+        if (shouldRefresh)
+            root.refresh();
+    }
+
     function refresh() {
+        if (root.loading) {
+            root.refreshPending = true;
+            return;
+        }
+
         root.loading = true;
         root.setError("");
         root.glabOk = true;
@@ -106,7 +121,6 @@ PluginComponent {
         const hasRepo = root.repo && root.repo.trim().length > 0;
 
         if (!hasGroup && !hasRepo) {
-            root.loading = false;
             root.setError("Configure a Group or Repo in settings.");
             root.issuesCount = 0;
             root.mrsCount = 0;
@@ -114,6 +128,7 @@ PluginComponent {
             root.mrsList = [];
             root.issuesList = [];
             root.incidentsList = [];
+            root.completeRefresh();
             return;
         }
 
@@ -123,7 +138,6 @@ PluginComponent {
                 root.glabOk = false;
                 root.authOk = false;
                 root.incidentsSupported = false;
-                root.loading = false;
                 root.issuesCount = 0;
                 root.mrsCount = 0;
                 root.incidentsCount = 0;
@@ -131,6 +145,7 @@ PluginComponent {
                 root.issuesList = [];
                 root.incidentsList = [];
                 root.setError("Could not execute glab. Is it installed and in PATH?");
+                root.completeRefresh();
                 return;
             }
 
@@ -139,13 +154,13 @@ PluginComponent {
                 if (authExit !== 0) {
                     root.authOk = false;
                     root.incidentsSupported = false;
-                    root.loading = false;
                     root.issuesCount = 0;
                     root.mrsCount = 0;
                     root.incidentsCount = 0;
                     root.mrsList = [];
                     root.issuesList = [];
                     root.setError("glab is not authenticated. Run: glab auth login");
+                    root.completeRefresh();
                     return;
                 }
 
@@ -153,13 +168,13 @@ PluginComponent {
                 if (root.showIncidents) {
                     Proc.runCommand("gitlabNotifier.incidentHelp", [root.glabBinary, "incident", "--help"], (helpOut, helpExit) => {
                         root.incidentsSupported = helpExit === 0;
-                    }, 200);
+                    }, 5000);
                 } else {
                     root.incidentsSupported = true;
                 }
                 root.loadUsername(root.fetchCounts);
-            }, 400);
-        }, 300);
+            }, 5000);
+        }, 5000);
     }
 
     function loadUsername(cb) {
@@ -176,7 +191,7 @@ PluginComponent {
                 }
             }
             if (typeof cb === "function") Qt.callLater(cb);
-        }, 2000);
+        }, 5000);
     }
 
     function parseJsonArray(stdout) {
@@ -225,7 +240,7 @@ PluginComponent {
                     root.mrsList = [];
                 }
                 nextAfterMrs();
-            }, 500);
+            }, 5000);
         };
 
         const nextAfterMrs = () => {
@@ -247,11 +262,10 @@ PluginComponent {
                     root.incidentsCount = 0;
                 }
                 finish();
-            }, 500);
+            }, 5000);
         };
 
         const finish = () => {
-            root.loading = false;
             root.lastUpdate = new Date().toLocaleTimeString();
             if (!root.incidentsSupported && root.showIncidents) {
                 root.setError("Your glab version does not support incidents.");
@@ -260,6 +274,7 @@ PluginComponent {
                     // no-op
                 }
             }
+            root.completeRefresh();
         };
 
         if (root.showIssues) {
@@ -275,7 +290,7 @@ PluginComponent {
                     root.issuesList = [];
                 }
                 nextAfterIssues();
-            }, 500);
+            }, 5000);
         } else {
             nextAfterIssues();
         }
@@ -814,7 +829,7 @@ PluginComponent {
                     text: root.lastError
                     wrapMode: Text.WordWrap
                     horizontalAlignment: Text.AlignHCenter
-                    color: Theme.onErrorContainer
+                    color: Theme.errorContainerText
                     font.pixelSize: Theme.fontSizeSmall
                 }
             }
