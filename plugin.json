@@ -2,7 +2,7 @@
     "id": "gitlabNotifier",
     "name": "GitLab Notifier",
     "description": "Shows in the DankBar the status of a GitLab scope (issues, MRs and incidents assigned to you).",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "author": "Lucas Mariani",
     "type": "widget",
     "capabilities": [
