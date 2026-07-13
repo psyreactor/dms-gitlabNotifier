@@ -164,17 +164,26 @@ PluginComponent {
                     return;
                 }
 
-                // 3) Check incidents support (only if enabled)
+                // 3) Gather prerequisites (incidents support + username) in
+                // parallel, then fetch counts once both have completed.
+                let pending = 1; // loadUsername
+                if (root.showIncidents) pending++;
+                const afterPrereqs = () => {
+                    if (--pending === 0) root.fetchCounts();
+                };
+
                 if (root.showIncidents) {
                     Proc.runCommand("gitlabNotifier.incidentHelp", [root.glabBinary, "incident", "--help"], (helpOut, helpExit) => {
                         root.incidentsSupported = helpExit === 0;
-                    }, 5000);
+                        afterPrereqs();
+                    }, 0, 10000);
                 } else {
                     root.incidentsSupported = true;
                 }
-                root.loadUsername(root.fetchCounts);
-            }, 5000);
-        }, 5000);
+
+                root.loadUsername(afterPrereqs);
+            }, 0, 10000);
+        }, 0, 10000);
     }
 
     function loadUsername(cb) {
@@ -191,7 +200,7 @@ PluginComponent {
                 }
             }
             if (typeof cb === "function") Qt.callLater(cb);
-        }, 5000);
+        }, 0, 10000);
     }
 
     function parseJsonArray(stdout) {
@@ -226,45 +235,6 @@ PluginComponent {
             return useGroup ? ["--group", g] : ["--repo", r];
         }
 
-        const nextAfterIssues = () => {
-            if (!root.showMRs) return nextAfterMrs();
-            Proc.runCommand(
-                        "gitlabNotifier.mrList",
-                        [root.glabBinary, "mr", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--output", "json"]),
-                        (stdout, exitCode) => {
-                if (exitCode === 0) {
-                    const list = parseJsonArray(stdout);
-                    root.mrsList = list;
-                    root.mrsCount = list.length;
-                } else {
-                    root.mrsList = [];
-                }
-                nextAfterMrs();
-            }, 5000);
-        };
-
-        const nextAfterMrs = () => {
-            if (!root.showIncidents) return finish();
-            if (!root.incidentsSupported) {
-                root.incidentsCount = 0;
-                return finish();
-            }
-            Proc.runCommand(
-                        "gitlabNotifier.incidentList",
-                        [root.glabBinary, "incident", "list"].concat(scopeArgs()).concat(["--assignee=@me","--output", "json"]),
-                        (stdout, exitCode) => {
-                if (exitCode === 0) {
-                    const list = parseJsonArray(stdout);
-                    root.incidentsList = list;
-                    root.incidentsCount = list.length;
-                } else {
-                    root.incidentsList = [];
-                    root.incidentsCount = 0;
-                }
-                finish();
-            }, 5000);
-        };
-
         const finish = () => {
             root.lastUpdate = new Date().toLocaleTimeString();
             if (!root.incidentsSupported && root.showIncidents) {
@@ -275,6 +245,25 @@ PluginComponent {
                 }
             }
             root.completeRefresh();
+        };
+
+        const runIncidents = root.showIncidents && root.incidentsSupported;
+        if (root.showIncidents && !root.incidentsSupported)
+            root.incidentsCount = 0;
+
+        const tasks = [];
+        if (root.showIssues) tasks.push("issue");
+        if (root.showMRs) tasks.push("mr");
+        if (runIncidents) tasks.push("incident");
+
+        if (tasks.length === 0) {
+            finish();
+            return;
+        }
+
+        let remaining = tasks.length;
+        const done = () => {
+            if (--remaining === 0) finish();
         };
 
         if (root.showIssues) {
@@ -289,10 +278,41 @@ PluginComponent {
                 } else {
                     root.issuesList = [];
                 }
-                nextAfterIssues();
-            }, 5000);
-        } else {
-            nextAfterIssues();
+                done();
+            }, 0, 10000);
+        }
+
+        if (root.showMRs) {
+            Proc.runCommand(
+                        "gitlabNotifier.mrList",
+                        [root.glabBinary, "mr", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--output", "json"]),
+                        (stdout, exitCode) => {
+                if (exitCode === 0) {
+                    const list = parseJsonArray(stdout);
+                    root.mrsList = list;
+                    root.mrsCount = list.length;
+                } else {
+                    root.mrsList = [];
+                }
+                done();
+            }, 0, 10000);
+        }
+
+        if (runIncidents) {
+            Proc.runCommand(
+                        "gitlabNotifier.incidentList",
+                        [root.glabBinary, "incident", "list"].concat(scopeArgs()).concat(["--assignee=@me","--output", "json"]),
+                        (stdout, exitCode) => {
+                if (exitCode === 0) {
+                    const list = parseJsonArray(stdout);
+                    root.incidentsList = list;
+                    root.incidentsCount = list.length;
+                } else {
+                    root.incidentsList = [];
+                    root.incidentsCount = 0;
+                }
+                done();
+            }, 0, 10000);
         }
     }
 
