@@ -36,6 +36,9 @@ PluginComponent {
     // State
     property bool loading: false
     property bool refreshPending: false
+    // Bumped on every refresh() so callbacks from an abandoned cycle (watchdog
+    // timeout, overlapping refresh) can be discarded instead of completing it.
+    property int refreshEpoch: 0
     property string lastError: ""
     property string lastUpdate: ""
     property bool glabOk: true
@@ -57,6 +60,24 @@ PluginComponent {
         repeat: true
         triggeredOnStart: true
         onTriggered: root.refresh()
+    }
+
+    // If a Proc callback never fires, `loading` would latch true forever and
+    // refresh() would early-return for the rest of the session ("Checking...").
+    // 60s is above the worst legitimate case: glabVersion, authStatus, the
+    // prerequisites and the count queries carry a 10s Proc timeout each and run
+    // back to back, so a healthy refresh tops out around 40s.
+    Timer {
+        id: loadingWatchdog
+        interval: 60000
+        repeat: false
+        running: root.loading
+        onTriggered: {
+            root.refreshEpoch++;
+            root.refreshPending = false;
+            root.loading = false;
+            root.setError("Timed out talking to glab. Will retry.");
+        }
     }
 
     onGroupChanged: refresh()
@@ -114,6 +135,7 @@ PluginComponent {
         }
 
         root.loading = true;
+        const gen = ++root.refreshEpoch;
         root.setError("");
         root.glabOk = true;
         root.authOk = true;
@@ -132,8 +154,17 @@ PluginComponent {
             return;
         }
 
+        // Proc.runCommand() is a singleton that keeps one entry per id and reads
+        // entry.callback at completion time, so two widget instances (one per
+        // bar/monitor) sharing an id clobber each other and only the last one
+        // registered ever fires. A null id makes Proc mint a private id per call
+        // and drop the entry once it completes.
+
         // 1) Check glab
-            Proc.runCommand("gitlabNotifier.glabVersion", [root.glabBinary, "--version"], (stdout, exitCode) => {
+        Proc.runCommand(null, [root.glabBinary, "--version"], (stdout, exitCode) => {
+            if (gen !== root.refreshEpoch)
+                return;
+
             if (exitCode !== 0) {
                 root.glabOk = false;
                 root.authOk = false;
@@ -150,7 +181,10 @@ PluginComponent {
             }
 
             // 2) Check auth
-            Proc.runCommand("gitlabNotifier.authStatus", [root.glabBinary, "auth", "status"], (authOut, authExit) => {
+            Proc.runCommand(null, [root.glabBinary, "auth", "status"], (authOut, authExit) => {
+                if (gen !== root.refreshEpoch)
+                    return;
+
                 if (authExit !== 0) {
                     root.authOk = false;
                     root.incidentsSupported = false;
@@ -169,11 +203,19 @@ PluginComponent {
                 let pending = 1; // loadUsername
                 if (root.showIncidents) pending++;
                 const afterPrereqs = () => {
-                    if (--pending === 0) root.fetchCounts();
+                    // loadUsername defers this through Qt.callLater, so the
+                    // refresh can be superseded between its guard and here.
+                    if (gen !== root.refreshEpoch)
+                        return;
+
+                    if (--pending === 0) root.fetchCounts(gen);
                 };
 
                 if (root.showIncidents) {
-                    Proc.runCommand("gitlabNotifier.incidentHelp", [root.glabBinary, "incident", "--help"], (helpOut, helpExit) => {
+                    Proc.runCommand(null, [root.glabBinary, "incident", "--help"], (helpOut, helpExit) => {
+                        if (gen !== root.refreshEpoch)
+                            return;
+
                         root.incidentsSupported = helpExit === 0;
                         afterPrereqs();
                     }, 0, 10000);
@@ -181,13 +223,18 @@ PluginComponent {
                     root.incidentsSupported = true;
                 }
 
-                root.loadUsername(afterPrereqs);
+                root.loadUsername(gen, afterPrereqs);
             }, 0, 10000);
         }, 0, 10000);
     }
 
-    function loadUsername(cb) {
-        Proc.runCommand("gitlabNotifier.getUser", [root.glabBinary, "api", "user", "--output", "json"], (stdout, exitCode) => {
+    // `cb` gates fetchCounts(), so a callback from an abandoned refresh must not
+    // run it: that would drive a second, parallel cycle to completeRefresh().
+    function loadUsername(gen, cb) {
+        Proc.runCommand(null, [root.glabBinary, "api", "user", "--output", "json"], (stdout, exitCode) => {
+            if (gen !== root.refreshEpoch)
+                return;
+
             if (exitCode === 0 && stdout) {
                 try {
                     const data = JSON.parse(stdout.trim());
@@ -226,7 +273,7 @@ PluginComponent {
         return [];
     }
 
-    function fetchCounts() {
+    function fetchCounts(gen) {
         const r = (root.repo || "").trim();
         const g = (root.group || "").trim();
         const useGroup = g.length > 0;
@@ -268,9 +315,12 @@ PluginComponent {
 
         if (root.showIssues) {
             Proc.runCommand(
-                        "gitlabNotifier.issueList",
+                        null,
                         [root.glabBinary, "issue", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--output", "json"]),
                         (stdout, exitCode) => {
+                if (gen !== root.refreshEpoch)
+                    return;
+
                 if (exitCode === 0) {
                     const list = parseJsonArray(stdout);
                     root.issuesList = list;
@@ -284,9 +334,12 @@ PluginComponent {
 
         if (root.showMRs) {
             Proc.runCommand(
-                        "gitlabNotifier.mrList",
+                        null,
                         [root.glabBinary, "mr", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--output", "json"]),
                         (stdout, exitCode) => {
+                if (gen !== root.refreshEpoch)
+                    return;
+
                 if (exitCode === 0) {
                     const list = parseJsonArray(stdout);
                     root.mrsList = list;
@@ -300,9 +353,12 @@ PluginComponent {
 
         if (runIncidents) {
             Proc.runCommand(
-                        "gitlabNotifier.incidentList",
+                        null,
                         [root.glabBinary, "incident", "list"].concat(scopeArgs()).concat(["--assignee=@me","--output", "json"]),
                         (stdout, exitCode) => {
+                if (gen !== root.refreshEpoch)
+                    return;
+
                 if (exitCode === 0) {
                     const list = parseJsonArray(stdout);
                     root.incidentsList = list;
