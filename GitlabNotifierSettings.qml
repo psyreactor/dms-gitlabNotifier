@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Layouts
 import qs.Common
 import qs.Widgets
 import qs.Modules.Plugins
@@ -7,138 +8,175 @@ PluginSettings {
     id: root
     pluginId: "gitlabNotifier"
 
-    StyledText {
+    // Section header: icon, title and a one-line explanation of the group.
+    component GroupHeader: RowLayout {
+        property string iconName: ""
+        property string title: ""
+        property string subtitle: ""
+
         width: parent.width
-        text: "GitLab Notifier"
-        font.pixelSize: Theme.fontSizeLarge
-        font.weight: Font.Bold
-        color: Theme.surfaceText
+        spacing: Theme.spacingM
+
+        DankIcon {
+            name: iconName
+            size: 22
+            color: Theme.primary
+            Layout.alignment: Qt.AlignVCenter
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 2
+
+            StyledText {
+                text: title
+                font.pixelSize: Theme.fontSizeMedium
+                font.weight: Font.Medium
+                color: Theme.surfaceText
+                Layout.fillWidth: true
+            }
+
+            StyledText {
+                text: subtitle
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceVariantText
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+            }
+        }
     }
 
-    StyledText {
+    // Card wrapper matching the popout's cards.
+    component SettingsGroup: StyledRect {
+        default property alias content: groupCol.data
+
         width: parent.width
-        text: "Shows a badge with Issues / MRs / Incidents assigned to the authenticated glab user."
-        font.pixelSize: Theme.fontSizeSmall
-        color: Theme.surfaceVariantText
-        wrapMode: Text.WordWrap
-    }
-
-    Rectangle {
-        width: parent.width
-        height: 1
-        color: Theme.outline
-        opacity: 0.3
-    }
-
-    StringSetting {
-        settingKey: "group"
-        label: "Group"
-        description: "E.g.: myGroup or myOrg/myGroup. When set, --group is used and Repo is ignored."
-        placeholder: "group"
-        defaultValue: ""
-    }
-
-    StringSetting {
-        settingKey: "repo"
-        label: "Repo (group/project)"
-        description: "E.g.: myGroup/myRepo. Used with --repo when Group is not configured."
-        placeholder: "group/project"
-        defaultValue: ""
-    }
-
-    StringSetting {
-        settingKey: "glabBinary"
-        label: "glab binary"
-        description: "Binary name or path to the glab executable (default: glab)."
-        placeholder: "glab"
-        defaultValue: "glab"
-    }
-
-    StringSetting {
-        settingKey: "gitlabWebUrl"
-        label: "GitLab Web URL"
-        description: "Base URL to open links in the browser (default: https://gitlab.com)."
-        placeholder: "https://gitlab.com"
-        defaultValue: "https://gitlab.com"
-    }
-
-    SliderSetting {
-        settingKey: "refreshInterval"
-        label: "Refresh Interval"
-        description: "Refresh interval (in seconds)."
-        defaultValue: 60
-        minimum: 15
-        maximum: 3600
-        unit: "sec"
-        leftIcon: "schedule"
-    }
-
-    Rectangle {
-        width: parent.width
-        height: visibilityGroup.implicitHeight + Theme.spacingM * 2
-        color: Theme.surfaceContainer
+        height: Math.max(0, groupCol.implicitHeight + Theme.spacingM * 2)
         radius: Theme.cornerRadius
-        border.color: Theme.outline
+        color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
         border.width: 1
-        opacity: 0.8
+        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
 
         Column {
-            id: visibilityGroup
-            anchors.fill: parent
+            id: groupCol
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
             anchors.margins: Theme.spacingM
-            spacing: Theme.spacingM
+            spacing: Theme.spacingL
+        }
+    }
 
-            Row {
-                width: parent.width
-                spacing: Theme.spacingM
-                DankIcon { name: "bug_report"; size: 22; anchors.verticalCenter: parent.verticalCenter; opacity: 0.8 }
-                SelectionSetting {
-                    width: parent.width - 22 - Theme.spacingM
-                    settingKey: "showIssues"
-                    label: "Issues"
-                    description: "Include issues assigned to your user."
-                    options: [
-                        {label: "Visible", value: "true"},
-                        {label: "Hidden", value: "false"}
-                    ]
-                    defaultValue: "true"
-                }
+    Column {
+        width: parent.width
+        spacing: Theme.spacingL
+
+        SettingsGroup {
+            GroupHeader {
+                iconName: "workspaces"
+                title: "Scope"
+                subtitle: "Where to look for your assigned work. Group takes precedence over Repo."
             }
 
-            Row {
-                width: parent.width
-                spacing: Theme.spacingM
-                DankIcon { name: "merge_type"; size: 22; anchors.verticalCenter: parent.verticalCenter; opacity: 0.8 }
-                SelectionSetting {
-                    width: parent.width - 22 - Theme.spacingM
-                    settingKey: "showMRs"
-                    label: "Merge Requests"
-                    description: "Include merge requests assigned to your user."
-                    options: [
-                        {label: "Visible", value: "true"},
-                        {label: "Hidden", value: "false"}
-                    ]
-                    defaultValue: "true"
-                }
+            StringSetting {
+                settingKey: "group"
+                label: "Group"
+                description: "E.g.: myGroup or myOrg/myGroup. When set, --group is used and Repo is ignored."
+                placeholder: "group"
+                defaultValue: ""
             }
 
-            Row {
-                width: parent.width
-                spacing: Theme.spacingM
-                DankIcon { name: "warning"; size: 22; anchors.verticalCenter: parent.verticalCenter; opacity: 0.8 }
-                SelectionSetting {
-                    width: parent.width - 22 - Theme.spacingM
-                    settingKey: "showIncidents"
-                    label: "Incidents"
-                    description: "Include incidents assigned to your user (if supported by glab)."
-                    options: [
-                        {label: "Visible", value: "true"},
-                        {label: "Hidden", value: "false"}
-                    ]
-                    defaultValue: "true"
-                }
+            StringSetting {
+                settingKey: "repo"
+                label: "Repo (group/project)"
+                description: "E.g.: myGroup/myRepo. Used with --repo when Group is not configured."
+                placeholder: "group/project"
+                defaultValue: ""
+            }
+        }
+
+        SettingsGroup {
+            GroupHeader {
+                iconName: "terminal"
+                title: "GitLab CLI"
+                subtitle: "The glab executable and the instance its links point at. Requires glab authenticated."
+            }
+
+            StringSetting {
+                settingKey: "glabBinary"
+                label: "glab binary"
+                description: "Binary name or path to the glab executable (default: glab)."
+                placeholder: "glab"
+                defaultValue: "glab"
+            }
+
+            StringSetting {
+                settingKey: "gitlabWebUrl"
+                label: "GitLab Web URL"
+                description: "Base URL to open links in the browser (default: https://gitlab.com)."
+                placeholder: "https://gitlab.com"
+                defaultValue: "https://gitlab.com"
+            }
+
+            SliderSetting {
+                settingKey: "refreshInterval"
+                label: "Refresh Interval"
+                description: "Frequency of GitLab data background updates in seconds (minimum: 15s)."
+                defaultValue: 60
+                minimum: 15
+                maximum: 3600
+                unit: "sec"
+                leftIcon: "schedule"
+            }
+        }
+
+        SettingsGroup {
+            GroupHeader {
+                iconName: "visibility"
+                title: "Categories"
+                subtitle: "Which sections appear in the popout and count towards the bar badge."
+            }
+
+            ToggleSetting {
+                settingKey: "showIssues"
+                label: "Show Issues"
+                description: "Include issues assigned to your user."
+                defaultValue: true
+            }
+
+            ToggleSetting {
+                settingKey: "showMRs"
+                label: "Show Merge Requests"
+                description: "Include merge requests assigned to your user."
+                defaultValue: true
+            }
+
+            ToggleSetting {
+                settingKey: "showIncidents"
+                label: "Show Incidents"
+                description: "Include incidents assigned to your user, when glab supports them."
+                defaultValue: true
+            }
+        }
+
+        SettingsGroup {
+            GroupHeader {
+                iconName: "schedule"
+                title: "Display"
+                subtitle: "How timestamps are rendered in the popout header."
+            }
+
+            SelectionSetting {
+                settingKey: "timeFormat"
+                label: "Time Format"
+                description: "Choose time format for the last-updated indicator."
+                options: [
+                    {label: "System Default", value: "system"},
+                    {label: "12-Hour", value: "12h"},
+                    {label: "24-Hour", value: "24h"}
+                ]
+                defaultValue: "system"
             }
         }
     }
 }
-

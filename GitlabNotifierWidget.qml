@@ -1,4 +1,7 @@
 import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import QtQuick.Shapes
 import Quickshell
 import qs.Common
 import qs.Services
@@ -14,6 +17,7 @@ PluginComponent {
     property string group: pluginData.group || ""
     property string repo: pluginData.repo || ""
     property string glabBinary: pluginData.glabBinary || "glab"
+    property string timeFormat: pluginData.timeFormat || "system"
     property string gitlabWebUrl: pluginData.gitlabWebUrl || "https://gitlab.com"
     property int refreshInterval: pluginData.refreshInterval || 60 // seconds
 
@@ -40,7 +44,11 @@ PluginComponent {
     // timeout, overlapping refresh) can be discarded instead of completing it.
     property int refreshEpoch: 0
     property string lastError: ""
-    property string lastUpdate: ""
+    property var lastUpdated: null
+    // Set by the manual refresh button so the toast only fires for a refresh
+    // the user actually asked for, not for every periodic tick.
+    property bool manualRefresh: false
+    property string toastText: ""
     property bool glabOk: true
     property bool authOk: true
     property bool incidentsSupported: true
@@ -55,11 +63,34 @@ PluginComponent {
     readonly property int totalCount: (showIssues ? issuesCount : 0) + (showMRs ? mrsCount : 0) + (showIncidents ? incidentsCount : 0)
 
     Timer {
-        interval: root.refreshInterval * 1000
+        interval: Math.max(15, root.refreshInterval) * 1000
         running: true
         repeat: true
         triggeredOnStart: true
         onTriggered: root.refresh()
+    }
+
+    Timer {
+        id: toastTimer
+        interval: 1800
+    }
+
+    function showToast(msg) {
+        root.toastText = msg;
+        toastTimer.restart();
+    }
+
+    function getEffectiveTimeFormat() {
+        if (root.timeFormat === "12h") return "12h";
+        if (root.timeFormat === "24h") return "24h";
+
+        const sysFmt = Qt.locale().timeFormat(Locale.ShortFormat);
+        return (sysFmt.indexOf("H") !== -1 || sysFmt.indexOf("k") !== -1) ? "24h" : "12h";
+    }
+
+    function formatHeaderTime(dateObj) {
+        if (!dateObj) return "";
+        return Qt.formatTime(dateObj, getEffectiveTimeFormat() === "24h" ? "HH:mm" : "h:mm AP");
     }
 
     // If a Proc callback never fires, `loading` would latch true forever and
@@ -75,6 +106,7 @@ PluginComponent {
         onTriggered: {
             root.refreshEpoch++;
             root.refreshPending = false;
+            root.manualRefresh = false;
             root.loading = false;
             root.setError("Timed out talking to glab. Will retry.");
         }
@@ -121,8 +153,14 @@ PluginComponent {
 
     function completeRefresh() {
         const shouldRefresh = root.refreshPending;
+        const wasManual = root.manualRefresh;
         root.refreshPending = false;
+        root.manualRefresh = false;
         root.loading = false;
+        root.lastUpdated = new Date();
+
+        if (wasManual && !root.lastError)
+            root.showToast("Refreshed GitLab Data");
 
         if (shouldRefresh)
             root.refresh();
@@ -282,15 +320,10 @@ PluginComponent {
             return useGroup ? ["--group", g] : ["--repo", r];
         }
 
+        // Unsupported incidents used to raise a global error here. The
+        // incidents card now says so itself, which leaves the error banner for
+        // failures that actually block the whole refresh.
         const finish = () => {
-            root.lastUpdate = new Date().toLocaleTimeString();
-            if (!root.incidentsSupported && root.showIncidents) {
-                root.setError("Your glab version does not support incidents.");
-            } else {
-                if (root.lastError && root.lastError.indexOf("Configura el repo") === 0) {
-                    // no-op
-                }
-            }
             root.completeRefresh();
         };
 
@@ -372,28 +405,6 @@ PluginComponent {
         }
     }
 
-    component Badge: StyledRect {
-        property int value: 0
-        property string label: ""
-        property color badgeColor: Theme.primary
-
-        height: 18
-        width: Math.max(22, badgeText.implicitWidth + Theme.spacingS)
-        radius: 9
-        color: Qt.rgba(badgeColor.r, badgeColor.g, badgeColor.b, 0.18)
-        border.width: 1
-        border.color: Qt.rgba(badgeColor.r, badgeColor.g, badgeColor.b, 0.35)
-
-        StyledText {
-            id: badgeText
-            anchors.centerIn: parent
-            text: label.length ? (label + ":" + value) : value.toString()
-            font.pixelSize: Theme.fontSizeSmall
-            font.weight: Font.Medium
-            color: badgeColor
-        }
-    }
-
     horizontalBarPill: Component {
         Row {
             spacing: Theme.spacingXS
@@ -407,711 +418,630 @@ PluginComponent {
 
             StyledText {
                 id: barCount
-                text: root.totalCount > 0 ? root.totalCount.toString() : ""
+                text: root.totalCount.toString()
                 font.pixelSize: Theme.fontSizeMedium
                 font.weight: Font.Medium
-                color: root.lastError ? Theme.error : Theme.primary
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.totalCount > 0
-            }
-        }
-    }
-
-    verticalBarPill: Component {
-        Column {
-            spacing: 2
-
-            DankSVGIcon {
-                source: Qt.resolvedUrl("gitlab.svg")
-                size: Theme.iconSize - 7
-                anchors.horizontalCenter: parent.horizontalCenter
-                colorOverride: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
-            }
-
-            StyledText {
-                text: root.totalCount.toString()
                 color: root.lastError ? Theme.error : Theme.surfaceText
-                font.pixelSize: Theme.fontSizeSmall
-                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
             }
         }
     }
 
-    component StatRow: Item {
+    // A bare Column reports no implicit size in this slot, which renders the
+    // vertical pill broken. Same wrapper that fixed it in the GitHub plugin.
+    verticalBarPill: Component {
+        Item {
+            implicitWidth: verticalCol.implicitWidth
+            implicitHeight: verticalCol.implicitHeight
+
+            Column {
+                id: verticalCol
+                anchors.centerIn: parent
+                spacing: 2
+
+                DankSVGIcon {
+                    source: Qt.resolvedUrl("gitlab.svg")
+                    size: root.iconSize
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    colorOverride: root.lastError ? Theme.error : (root.totalCount > 0 ? Theme.primary : (Theme.widgetIconColor || Theme.surfaceText))
+                }
+
+                StyledText {
+                    text: root.totalCount.toString()
+                    color: root.lastError ? Theme.error : Theme.surfaceText
+                    font.pixelSize: Theme.fontSizeSmall
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+            }
+        }
+    }
+
+    // One card per category (Issues / MRs / Incidents). All three lists share
+    // the same shape — title, references.full or #iid, web_url — so the whole
+    // card, its empty/loading/unsupported states and its row delegate live here
+    // once instead of being spelled out three times.
+    component CategoryCard: StyledRect {
+        id: card
+
         property string title: ""
         property string iconName: ""
-        property int count: 0
-        property string openUrl: ""
+        property string webUrl: ""
+        property var items: []
+        property string emptyText: ""
+        property string loadingText: ""
+        property bool unsupported: false
+        property string unsupportedText: ""
         property color accentColor: Theme.primary
 
         width: parent.width
-        height: 40
+        height: Math.max(0, cardCol.implicitHeight + Theme.spacingM * 2)
+        radius: Theme.cornerRadius
+        color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+        border.width: 1
+        border.color: Qt.rgba(card.accentColor.r, card.accentColor.g, card.accentColor.b, 0.15)
 
-        Row {
+        Column {
+            id: cardCol
             anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Theme.spacingM
             spacing: Theme.spacingS
 
-            Rectangle {
-                width: 4
-                height: 22
-                radius: 2
-                color: accentColor
-                anchors.verticalCenter: parent.verticalCenter
-            }
+            // Section header, opens the category on GitLab
+            Item {
+                width: parent.width
+                height: headerRow.implicitHeight
 
-            DankIcon {
-                name: iconName
-                size: 20
-                color: accentColor
-                anchors.verticalCenter: parent.verticalCenter
-            }
+                RowLayout {
+                    id: headerRow
+                    anchors.fill: parent
+                    spacing: Theme.spacingXS
 
-            StyledText {
-                text: title
-                font.pixelSize: Theme.fontSizeMedium
-                font.weight: Font.Bold
-                color: Theme.surfaceText
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Rectangle {
-                width: badgeText.width + 14
-                height: 20
-                radius: 10
-                color: Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.15)
-                anchors.verticalCenter: parent.verticalCenter
-
-                StyledText {
-                    id: badgeText
-                    text: count.toString()
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.weight: Font.Bold
-                    color: accentColor
-                    anchors.centerIn: parent
-                }
-            }
-        }
-
-        // Action button (View All)
-        Item {
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: actionBtnRow.width + Theme.spacingM * 2
-            height: 30
-            visible: openUrl.length > 0 && count > 0
-            scale: actionBtnArea.pressed ? 0.95 : (actionBtnArea.containsMouse ? 1.05 : 1.0)
-            Behavior on scale { NumberAnimation { duration: 100 } }
-
-            MouseArea {
-                id: actionBtnArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onPressed: mouse => actionRipple.trigger(mouse.x, mouse.y)
-                onClicked: root.openUrl(openUrl)
-            }
-
-            Row {
-                id: actionBtnRow
-                anchors.centerIn: parent
-                spacing: Theme.spacingXS
-
-                DankIcon {
-                    id: actionIcon
-                    name: "open_in_new"
-                    size: 14
-                    color: actionBtnArea.containsMouse ? "white" : accentColor
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    SequentialAnimation {
-                        running: actionBtnArea.containsMouse
-                        loops: Animation.Infinite
-                        onStopped: actionIcon.rotation = 0
-                        NumberAnimation { target: actionIcon; property: "rotation"; from: 0; to: 10; duration: 50; easing.type: Easing.InOutQuad }
-                        NumberAnimation { target: actionIcon; property: "rotation"; from: 10; to: -10; duration: 100; easing.type: Easing.InOutQuad }
-                        NumberAnimation { target: actionIcon; property: "rotation"; from: -10; to: 0; duration: 50; easing.type: Easing.InOutQuad }
+                    DankIcon {
+                        name: card.iconName
+                        size: 14
+                        color: headerMa.containsMouse ? card.accentColor : Theme.surfaceText
+                        Layout.alignment: Qt.AlignVCenter
+                        Behavior on color { ColorAnimation { duration: 150 } }
                     }
-                }
-
-                StyledText {
-                    text: "View All"
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.weight: Font.Medium
-                    color: actionBtnArea.containsMouse ? "white" : accentColor
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-            }
-
-            DankRipple {
-                id: actionRipple
-                rippleColor: actionBtnArea.containsMouse ? "white" : accentColor
-                cornerRadius: Theme.cornerRadius
-                anchors.fill: parent
-            }
-        }
-    }
-
-    component GitLabIncidentItem: Item {
-        property var incidentData: null
-        property color accentColor: Theme.primary
-
-        width: ListView.view.width
-        height: 40
-
-        scale: incidentStateLayer.pressed ? 0.98 : 1.0
-        Behavior on scale { NumberAnimation { duration: 100 } }
-
-        StateLayer {
-            id: incidentStateLayer
-            stateColor: accentColor
-            cornerRadius: Theme.cornerRadius
-            onClicked: root.openUrl(incidentData.web_url)
-        }
-
-        Row {
-            anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingM
-            anchors.right: parent.right
-            anchors.rightMargin: Theme.spacingM
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.spacingS
-
-            DankIcon {
-                name: "subdirectory_arrow_right"
-                size: 14
-                color: accentColor
-                opacity: 0.6
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Column {
-                width: parent.width - 20
-                anchors.verticalCenter: parent.verticalCenter
-
-                StyledText {
-                    width: parent.width
-                    text: incidentData ? incidentData.title : ""
-                    font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.surfaceText
-                    elide: Text.ElideRight
-                    wrapMode: Text.NoWrap
-                }
-
-                StyledText {
-                    text: incidentData ? ((incidentData.references && incidentData.references.full) || ("#" + incidentData.iid)) : ""
-                    font.pixelSize: Theme.fontSizeSmall - 2
-                    color: Theme.surfaceVariantText
-                    opacity: 0.8
-                }
-            }
-        }
-    }
-
-    component GitLabIssueItem: Item {
-        property var issueData: null
-        property color accentColor: Theme.primary
-
-        width: ListView.view.width
-        height: 40
-
-        scale: issueStateLayer.pressed ? 0.98 : 1.0
-        Behavior on scale { NumberAnimation { duration: 100 } }
-
-        StateLayer {
-            id: issueStateLayer
-            stateColor: accentColor
-            cornerRadius: Theme.cornerRadius
-            onClicked: root.openUrl(issueData.web_url)
-        }
-
-        Row {
-            anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingM
-            anchors.right: parent.right
-            anchors.rightMargin: Theme.spacingM
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.spacingS
-
-            DankIcon {
-                name: "subdirectory_arrow_right"
-                size: 14
-                color: accentColor
-                opacity: 0.6
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Column {
-                width: parent.width - 20
-                anchors.verticalCenter: parent.verticalCenter
-
-                StyledText {
-                    width: parent.width
-                    text: issueData ? issueData.title : ""
-                    font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.surfaceText
-                    elide: Text.ElideRight
-                    wrapMode: Text.NoWrap
-                }
-
-                StyledText {
-                    text: issueData ? ((issueData.references && issueData.references.full) || ("#" + issueData.iid)) : ""
-                    font.pixelSize: Theme.fontSizeSmall - 2
-                    color: Theme.surfaceVariantText
-                    opacity: 0.8
-                }
-            }
-        }
-    }
-
-    component GitLabMRItem: Item {
-        property var mrData: null
-        property color accentColor: Theme.secondary
-
-        width: ListView.view.width
-        height: 40
-
-        scale: mrStateLayer.pressed ? 0.98 : 1.0
-        Behavior on scale { NumberAnimation { duration: 100 } }
-
-        StateLayer {
-            id: mrStateLayer
-            stateColor: accentColor
-            cornerRadius: Theme.cornerRadius
-            onClicked: root.openUrl(mrData.web_url)
-        }
-
-        Row {
-            anchors.left: parent.left
-            anchors.leftMargin: Theme.spacingM
-            anchors.right: parent.right
-            anchors.rightMargin: Theme.spacingM
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Theme.spacingS
-
-            DankIcon {
-                name: "subdirectory_arrow_right"
-                size: 14
-                color: accentColor
-                opacity: 0.6
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Row {
-                width: parent.width - 20
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Theme.spacingXS
-
-                Column {
-                    width: parent.width - (mergeableIcon.visible ? 16 + Theme.spacingXS : 0)
-                    anchors.verticalCenter: parent.verticalCenter
 
                     StyledText {
-                        width: parent.width
-                        text: mrData ? mrData.title : ""
+                        text: card.title
                         font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceText
-                        elide: Text.ElideRight
-                        wrapMode: Text.NoWrap
+                        font.weight: Font.Bold
+                        color: headerMa.containsMouse ? card.accentColor : Theme.surfaceText
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        Behavior on color { ColorAnimation { duration: 150 } }
                     }
 
                     StyledText {
-                        text: mrData ? ((mrData.references && mrData.references.full) || ("!" + mrData.iid)) : ""
-                        font.pixelSize: Theme.fontSizeSmall - 2
-                        color: Theme.surfaceVariantText
-                        opacity: 0.8
+                        text: card.items.length.toString()
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Bold
+                        color: card.accentColor
+                        opacity: 0.7
+                        Layout.alignment: Qt.AlignVCenter
+                        visible: !card.unsupported && card.items.length > 0
+                    }
+
+                    DankIcon {
+                        name: "open_in_new"
+                        size: 14
+                        color: headerMa.containsMouse ? card.accentColor : Theme.surfaceVariantText
+                        opacity: headerMa.containsMouse ? 0.9 : 0.4
+                        Layout.alignment: Qt.AlignVCenter
+                        Behavior on opacity { NumberAnimation { duration: 150 } }
+                        Behavior on color { ColorAnimation { duration: 150 } }
                     }
                 }
 
-                DankIcon {
-                    id: mergeableIcon
-                    name: "check_circle"
-                    size: 14
-                    color: Theme.success
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: mrData && mrData.detailed_merge_status === "mergeable"
+                MouseArea {
+                    id: headerMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.openUrl(card.webUrl)
+                }
+            }
+
+            // Unsupported state, only reachable by the incidents card
+            StyledRect {
+                width: parent.width
+                height: 44
+                radius: Theme.cornerRadius
+                color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.05)
+                border.width: 1
+                border.color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.12)
+                visible: card.unsupported
+
+                RowLayout {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+
+                    DankIcon {
+                        name: "info"
+                        size: 18
+                        color: Theme.surfaceVariantText
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    StyledText {
+                        text: card.unsupportedText
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: Theme.surfaceVariantText
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                }
+            }
+
+            // Empty state
+            StyledRect {
+                width: parent.width
+                height: 44
+                radius: Theme.cornerRadius
+                color: Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.05)
+                border.width: 1
+                border.color: Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.12)
+                visible: !card.unsupported && !root.loading && card.items.length === 0
+
+                RowLayout {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+
+                    DankIcon {
+                        name: "check_circle"
+                        size: 18
+                        color: Theme.surfaceVariantText
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    StyledText {
+                        text: card.emptyText
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: Theme.surfaceVariantText
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                }
+            }
+
+            // Loading state
+            StyledRect {
+                width: parent.width
+                height: 44
+                radius: Theme.cornerRadius
+                color: Qt.rgba(card.accentColor.r, card.accentColor.g, card.accentColor.b, 0.05)
+                border.width: 1
+                border.color: Qt.rgba(card.accentColor.r, card.accentColor.g, card.accentColor.b, 0.12)
+                visible: !card.unsupported && root.loading
+
+                RowLayout {
+                    anchors.centerIn: parent
+                    spacing: Theme.spacingS
+
+                    DankSpinner {
+                        size: 18
+                        color: card.accentColor
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    StyledText {
+                        text: card.loadingText
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: Font.Medium
+                        color: Theme.surfaceVariantText
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                }
+            }
+
+            // The list itself, scrollable past three items
+            Item {
+                width: parent.width
+                height: card.items.length > 3 ? 166 : itemsColumn.implicitHeight
+                visible: !card.unsupported && !root.loading && card.items.length > 0
+
+                ScrollView {
+                    id: cardScrollView
+                    anchors.fill: parent
+                    contentWidth: availableWidth
+
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                    ScrollBar.vertical: ScrollBar {
+                        id: cardScrollBar
+                        policy: card.items.length > 3 ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+                        active: true
+                        width: 6
+
+                        contentItem: Rectangle {
+                            implicitWidth: 6
+                            radius: 3
+                            color: cardScrollBar.pressed
+                                   ? card.accentColor
+                                   : (cardScrollBar.hovered
+                                      ? Qt.rgba(card.accentColor.r, card.accentColor.g, card.accentColor.b, 0.7)
+                                      : Qt.rgba(card.accentColor.r, card.accentColor.g, card.accentColor.b, 0.4))
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                        }
+
+                        background: Rectangle {
+                            implicitWidth: 6
+                            radius: 3
+                            color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.2)
+                        }
+                    }
+
+                    Column {
+                        id: itemsColumn
+                        width: cardScrollView.availableWidth
+                        spacing: 4
+
+                        Repeater {
+                            model: card.items
+
+                            delegate: Item {
+                                id: rowDelegate
+                                width: parent.width
+                                height: Math.max(56, rowLayout.implicitHeight + Theme.spacingS * 2)
+
+                                readonly property bool isHovered: rowMa.containsMouse
+                                readonly property bool isFirst: index === 0
+                                readonly property bool isLast: index === card.items.length - 1
+
+                                Shape {
+                                    id: rowBg
+                                    anchors.fill: parent
+
+                                    readonly property real innerRadius: 6
+                                    readonly property real outerRadius: Theme.cornerRadius || 12
+                                    readonly property real topR: rowDelegate.isHovered ? (height / 2) : (rowDelegate.isFirst ? outerRadius : innerRadius)
+                                    readonly property real bottomR: rowDelegate.isHovered ? (height / 2) : (rowDelegate.isLast ? outerRadius : innerRadius)
+
+                                    property real topRAnim: topR
+                                    Behavior on topRAnim { NumberAnimation { duration: 600; easing.type: Easing.OutExpo } }
+                                    property real bottomRAnim: bottomR
+                                    Behavior on bottomRAnim { NumberAnimation { duration: 600; easing.type: Easing.OutExpo } }
+
+                                    ShapePath {
+                                        fillColor: rowDelegate.isHovered
+                                                   ? Qt.rgba(card.accentColor.r, card.accentColor.g, card.accentColor.b, 0.1)
+                                                   : Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.04)
+                                        strokeColor: rowDelegate.isHovered
+                                                     ? Qt.rgba(card.accentColor.r, card.accentColor.g, card.accentColor.b, 0.4)
+                                                     : Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.15)
+                                        strokeWidth: 1
+
+                                        startX: rowBg.topRAnim + 1; startY: 1
+                                        PathLine { x: rowBg.width - rowBg.topRAnim - 1; y: 1 }
+                                        PathArc { x: rowBg.width - 1; y: rowBg.topRAnim + 1; radiusX: rowBg.topRAnim; radiusY: rowBg.topRAnim; direction: PathArc.Clockwise }
+                                        PathLine { x: rowBg.width - 1; y: rowBg.height - rowBg.bottomRAnim - 1 }
+                                        PathArc { x: rowBg.width - rowBg.bottomRAnim - 1; y: rowBg.height - 1; radiusX: rowBg.bottomRAnim; radiusY: rowBg.bottomRAnim; direction: PathArc.Clockwise }
+                                        PathLine { x: rowBg.bottomRAnim + 1; y: rowBg.height - 1 }
+                                        PathArc { x: 1; y: rowBg.height - rowBg.bottomRAnim - 1; radiusX: rowBg.bottomRAnim; radiusY: rowBg.bottomRAnim; direction: PathArc.Clockwise }
+                                        PathLine { x: 1; y: rowBg.topRAnim + 1 }
+                                        PathArc { x: rowBg.topRAnim + 1; y: 1; radiusX: rowBg.topRAnim; radiusY: rowBg.topRAnim; direction: PathArc.Clockwise }
+                                    }
+                                }
+
+                                DankRipple {
+                                    id: rowRipple
+                                    anchors.fill: parent
+                                    cornerRadius: rowBg.topRAnim
+                                    rippleColor: card.accentColor
+                                }
+
+                                RowLayout {
+                                    id: rowLayout
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: Theme.spacingM
+                                    anchors.rightMargin: Theme.spacingM
+                                    spacing: Theme.spacingM
+
+                                    DankIcon {
+                                        name: card.iconName
+                                        size: 18
+                                        color: card.accentColor
+                                        Layout.alignment: Qt.AlignVCenter
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Layout.alignment: Qt.AlignVCenter
+                                        spacing: 2
+
+                                        StyledText {
+                                            text: modelData.title || ""
+                                            font.pixelSize: Theme.fontSizeMedium
+                                            font.weight: Font.Medium
+                                            color: Theme.surfaceText
+                                            Layout.fillWidth: true
+                                            wrapMode: Text.WordWrap
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
+                                        }
+
+                                        StyledText {
+                                            text: (modelData.references && modelData.references.full) || ("#" + modelData.iid)
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: rowDelegate.isHovered ? card.accentColor : Theme.surfaceVariantText
+                                            Layout.fillWidth: true
+                                            elide: Text.ElideRight
+                                            Behavior on color { ColorAnimation { duration: 150 } }
+                                        }
+                                    }
+
+                                    DankIcon {
+                                        name: "open_in_new"
+                                        size: 16
+                                        color: Theme.surfaceVariantText
+                                        opacity: rowDelegate.isHovered ? 0.9 : 0.0
+                                        Layout.alignment: Qt.AlignVCenter
+                                        Behavior on opacity { NumberAnimation { duration: 150 } }
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: rowMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onPressed: m => rowRipple.trigger(m.x, m.y)
+                                    onClicked: root.openUrl(modelData.web_url)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
     popoutContent: Component {
-        Column {
-            width: parent.width
-            spacing: Theme.spacingM
-            topPadding: Theme.spacingM
-            bottomPadding: Theme.spacingM
+        PopoutComponent {
+            id: popoutColumn
+            headerText: ""
+            showCloseButton: false
 
-            // Header card
             Item {
                 width: parent.width
-                height: 68
+                height: mainCol.implicitHeight
 
-                Rectangle {
-                    anchors.fill: parent
-                    radius: Theme.cornerRadius * 1.5
-                    gradient: Gradient {
-                        GradientStop {
-                            position: 0.0
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
-                        }
-                        GradientStop {
-                            position: 1.0
-                            color: Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.08)
-                        }
-                    }
-                    border.width: 1
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.25)
-                }
-
-                Row {
-                    anchors.left: parent.left
-                    anchors.leftMargin: Theme.spacingM
-                    anchors.verticalCenter: parent.verticalCenter
+                Column {
+                    id: mainCol
+                    width: parent.width
                     spacing: Theme.spacingM
+                    topPadding: 0
+                    bottomPadding: 2
 
-                    // GitLab logo button
-                    Item {
-                        width: 40
-                        height: 40
-                        anchors.verticalCenter: parent.verticalCenter
+                    // Header card: identity on the left, refresh on the right
+                    StyledRect {
+                        width: parent.width
+                        height: 72
+                        radius: Theme.cornerRadius * 1.5
+                        color: Theme.withAlpha(Theme.surfaceContainerHigh, Theme.popupTransparency)
+                        border.width: 1
+                        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
 
-                        MouseArea {
-                            id: profileArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onPressed: mouse => profileRipple.trigger(mouse.x, mouse.y)
-                            onClicked: root.openUrl(root.profileWebUrl())
-                        }
+                        Row {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.spacingM
+                            anchors.right: headerRefreshBtn.left
+                            anchors.rightMargin: Theme.spacingS
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: Theme.spacingM
 
-                        DankCircularImage {
-                            anchors.fill: parent
-                            imageSource: root.avatarUrl
-                            fallbackIcon: ""
-                            border.width: profileArea.containsMouse ? 2 : 0
-                            border.color: Theme.primary
+                            Item {
+                                width: 42
+                                height: 42
+                                anchors.verticalCenter: parent.verticalCenter
 
-                            DankSVGIcon {
-                                source: Qt.resolvedUrl("gitlab.svg")
-                                size: 22
-                                anchors.centerIn: parent
-                                colorOverride: Theme.primary
-                                visible: parent.imageStatus !== Image.Ready
+                                MouseArea {
+                                    id: profileArea
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onPressed: m => profileRipple.trigger(m.x, m.y)
+                                    onClicked: root.openUrl(root.profileWebUrl())
+                                }
+
+                                DankCircularImage {
+                                    anchors.fill: parent
+                                    imageSource: root.avatarUrl
+                                    fallbackIcon: ""
+                                    border.width: profileArea.containsMouse ? 2 : 0
+                                    border.color: Theme.primary
+
+                                    DankSVGIcon {
+                                        source: Qt.resolvedUrl("gitlab.svg")
+                                        size: 22
+                                        anchors.centerIn: parent
+                                        colorOverride: Theme.primary
+                                        visible: parent.imageStatus !== Image.Ready
+                                    }
+                                }
+
+                                DankRipple {
+                                    id: profileRipple
+                                    rippleColor: Theme.primary
+                                    cornerRadius: 21
+                                    anchors.fill: parent
+                                }
+                            }
+
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 2
+
+                                StyledText {
+                                    text: root.username ? root.username : "GitLab Notifier"
+                                    font.bold: true
+                                    font.pixelSize: Theme.fontSizeLarge
+                                    color: Theme.surfaceText
+                                }
+
+                                StyledText {
+                                    text: root.lastUpdated
+                                          ? (root.totalCount + " Active Items • Updated " + root.formatHeaderTime(root.lastUpdated))
+                                          : (root.totalCount + " Active Items")
+                                    font.pixelSize: Theme.fontSizeSmall - 1
+                                    color: Theme.primary
+                                    opacity: 0.85
+                                }
                             }
                         }
 
-                        DankRipple {
-                            id: profileRipple
-                            rippleColor: Theme.surfaceText
-                            cornerRadius: 20
-                            anchors.fill: parent
+                        Rectangle {
+                            id: headerRefreshBtn
+                            anchors.right: parent.right
+                            anchors.rightMargin: Theme.spacingM
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 38
+                            height: 38
+                            radius: Theme.cornerRadius
+                            color: refreshMa.containsMouse
+                                   ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                                   : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                            border.width: 1
+                            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, refreshMa.containsMouse ? 0.3 : 0.15)
+
+                            scale: refreshMa.pressed ? 0.92 : (refreshMa.containsMouse ? 1.05 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+                            Behavior on color { ColorAnimation { duration: 150 } }
+
+                            DankRipple { id: refreshRipple; anchors.fill: parent; cornerRadius: Theme.cornerRadius; rippleColor: Theme.primary }
+
+                            DankSpinner {
+                                size: 20
+                                color: Theme.primary
+                                anchors.centerIn: parent
+                                visible: root.loading
+                            }
+
+                            DankIcon {
+                                name: "refresh"
+                                size: 20
+                                color: Theme.primary
+                                anchors.centerIn: parent
+                                visible: !root.loading
+
+                                rotation: refreshMa.containsMouse ? 180 : 0
+                                Behavior on rotation { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                            }
+
+                            MouseArea {
+                                id: refreshMa
+                                anchors.fill: parent
+                                hoverEnabled: !root.loading
+                                cursorShape: Qt.PointingHandCursor
+                                onPressed: m => refreshRipple.trigger(m.x, m.y)
+                                onClicked: {
+                                    root.manualRefresh = true;
+                                    root.refresh();
+                                }
+                            }
                         }
                     }
 
-                    Column {
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 2
+                    StyledRect {
+                        width: parent.width
+                        visible: root.lastError.length > 0
+                        height: Math.max(0, errText.implicitHeight + Theme.spacingM * 2)
+                        radius: Theme.cornerRadius
+                        color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.12)
+                        border.width: 1
+                        border.color: Qt.rgba(Theme.error.r, Theme.error.g, Theme.error.b, 0.4)
 
                         StyledText {
-                            text: root.username ? root.username : "GitLab Notifier"
-                            font.bold: true
-                            font.pixelSize: Theme.fontSizeLarge
+                            id: errText
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingM
+                            verticalAlignment: Text.AlignVCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                            text: root.lastError
+                            color: Theme.error
+                            font.pixelSize: Theme.fontSizeSmall
+                        }
+                    }
+
+                    CategoryCard {
+                        title: "Issues"
+                        iconName: "bug_report"
+                        accentColor: Theme.primary
+                        items: root.issuesList
+                        emptyText: "No assigned issues"
+                        loadingText: "Refreshing issues..."
+                        webUrl: root.scopeWebBase() + "/-/issues?state=opened&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
+                        visible: root.showIssues
+                    }
+
+                    CategoryCard {
+                        title: "Merge Requests"
+                        iconName: "merge_type"
+                        accentColor: Theme.secondary
+                        items: root.mrsList
+                        emptyText: "No assigned merge requests"
+                        loadingText: "Refreshing merge requests..."
+                        webUrl: root.scopeWebBase() + "/-/merge_requests?state=opened&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
+                        visible: root.showMRs
+                    }
+
+                    CategoryCard {
+                        title: "Incidents"
+                        iconName: "e911_emergency"
+                        accentColor: Theme.error
+                        items: root.incidentsList
+                        emptyText: "No assigned incidents"
+                        loadingText: "Refreshing incidents..."
+                        unsupported: !root.incidentsSupported
+                        unsupportedText: "This glab version has no incident support"
+                        webUrl: root.scopeWebBase() + "/-/issues?state=opened&type[]=INCIDENT&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
+                        visible: root.showIncidents
+                    }
+                }
+
+                // Toast, shown only for a refresh the user asked for
+                Rectangle {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: Theme.spacingS
+                    height: 32
+                    width: toastLayout.implicitWidth + Theme.spacingM * 2
+                    radius: height / 2
+                    color: Qt.rgba(Theme.surfaceContainerHighest.r, Theme.surfaceContainerHighest.g, Theme.surfaceContainerHighest.b, 0.95)
+                    border.width: 1
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4)
+                    z: 999
+                    opacity: toastTimer.running ? 1.0 : 0.0
+                    scale: toastTimer.running ? 1.0 : 0.75
+
+                    Behavior on opacity { NumberAnimation { duration: 200 } }
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
+                    RowLayout {
+                        id: toastLayout
+                        anchors.centerIn: parent
+                        spacing: Theme.spacingXS
+
+                        DankIcon { name: "info"; size: 16; color: Theme.primary }
+
+                        StyledText {
+                            text: root.toastText
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Bold
                             color: Theme.surfaceText
                         }
-
-                        StyledText {
-                            text: root.group
-                                  ? ("Group: " + root.group)
-                                  : (root.repo ? ("Repo: " + root.repo) : "No Group/Repo configured")
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: Theme.surfaceVariantText
-                        }
                     }
                 }
-
-                // Refresh button
-                Item {
-                    width: 38
-                    height: 38
-                    anchors.right: parent.right
-                    anchors.rightMargin: Theme.spacingM
-                    anchors.verticalCenter: parent.verticalCenter
-                    scale: refreshArea.pressed ? 0.9 : (refreshArea.containsMouse ? 1.1 : 1.0)
-                    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
-
-                    MouseArea {
-                        id: refreshArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onPressed: mouse => refreshRipple.trigger(mouse.x, mouse.y)
-                        onClicked: root.refresh()
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: Theme.cornerRadius
-                        color: refreshArea.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.4)
-                        border.width: 1
-                        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, refreshArea.containsMouse ? 0.3 : 0.15)
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
-                    }
-
-                    DankIcon {
-                        id: refreshIcon
-                        name: "refresh"
-                        size: 20
-                        color: Theme.primary
-                        anchors.centerIn: parent
-
-                        SequentialAnimation {
-                            running: refreshArea.containsMouse && !root.loading
-                            onStopped: refreshIcon.rotation = 0
-                            NumberAnimation { target: refreshIcon; property: "rotation"; from: 0; to: 360; duration: 400; easing.type: Easing.InOutQuart }
-                            NumberAnimation { target: refreshIcon; property: "rotation"; from: 360; to: 0; duration: 400; easing.type: Easing.InOutQuart }
-                        }
-
-                        RotationAnimation on rotation {
-                            from: 0
-                            to: 360
-                            duration: 1000
-                            loops: Animation.Infinite
-                            running: root.loading
-                        }
-                    }
-
-                    DankRipple {
-                        id: refreshRipple
-                        rippleColor: Theme.surfaceText
-                        cornerRadius: Theme.cornerRadius
-                        anchors.fill: parent
-                    }
-                }
-            }
-
-            // Error container
-            StyledRect {
-                width: parent.width
-                height: root.lastError ? 60 : 0
-                radius: Theme.cornerRadius
-                color: Theme.errorContainer
-                visible: root.lastError.length > 0
-
-                StyledText {
-                    anchors.centerIn: parent
-                    width: parent.width - Theme.spacingL * 2
-                    text: root.lastError
-                    wrapMode: Text.WordWrap
-                    horizontalAlignment: Text.AlignHCenter
-                    color: Theme.errorContainerText
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-            }
-
-            // Issues section
-            StatRow {
-                title: "Issues"
-                iconName: "bug_report"
-                count: root.issuesCount
-                openUrl: root.scopeWebBase() + "/-/issues?state=opened&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
-                accentColor: Theme.primary
-                visible: root.showIssues
-            }
-
-            StyledRect {
-                id: issueContainer
-                width: parent.width
-                height: root.loading ? 54 : (root.issuesList.length > 0 ? Math.min(root.issuesList.length * 40 + (root.issuesList.length - 1) * 6 + 28, 300) : 54)
-                radius: Theme.cornerRadius * 1.5
-                color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
-                border.width: 1
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                visible: root.showIssues
-                clip: true
-                Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingS
-                    visible: root.loading
-
-                    DankIcon {
-                        name: "sync"
-                        size: 16
-                        color: Theme.primary
-                        anchors.verticalCenter: parent.verticalCenter
-                        RotationAnimation on rotation {
-                            from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.visible
-                        }
-                    }
-                    StyledText { text: "Checking..."; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
-                }
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingS
-                    visible: !root.loading && root.issuesList.length === 0
-
-                    DankIcon { name: "check_circle"; size: 16; color: Theme.primary; anchors.verticalCenter: parent.verticalCenter }
-                    StyledText { text: "No active issues"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
-                }
-
-                DankListView {
-                    anchors.fill: parent
-                    anchors.topMargin: 14
-                    anchors.bottomMargin: 14
-                    anchors.leftMargin: Theme.spacingS
-                    anchors.rightMargin: Theme.spacingS
-                    spacing: 6
-                    model: root.issuesList
-                    clip: true
-                    visible: !root.loading && root.issuesList.length > 0
-                    delegate: GitLabIssueItem {
-                        issueData: modelData
-                        accentColor: Theme.primary
-                    }
-                }
-            }
-
-            // Merge Requests section
-            StatRow {
-                title: "Merge Requests"
-                iconName: "merge_type"
-                count: root.mrsCount
-                openUrl: root.scopeWebBase() + "/-/merge_requests?state=opened&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
-                accentColor: Theme.secondary
-                visible: root.showMRs
-            }
-
-            StyledRect {
-                id: mrContainer
-                width: parent.width
-                height: root.loading ? 54 : (root.mrsList.length > 0 ? Math.min(root.mrsList.length * 40 + (root.mrsList.length - 1) * 6 + 28, 300) : 54)
-                radius: Theme.cornerRadius * 1.5
-                color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
-                border.width: 1
-                border.color: Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.1)
-                visible: root.showMRs
-                clip: true
-                Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingS
-                    visible: root.loading
-
-                    DankIcon {
-                        name: "sync"
-                        size: 16
-                        color: Theme.secondary
-                        anchors.verticalCenter: parent.verticalCenter
-                        RotationAnimation on rotation {
-                            from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.visible
-                        }
-                    }
-                    StyledText { text: "Checking..."; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
-                }
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingS
-                    visible: !root.loading && root.mrsList.length === 0
-
-                    DankIcon { name: "check_circle"; size: 16; color: Theme.secondary; anchors.verticalCenter: parent.verticalCenter }
-                    StyledText { text: "No active merge requests"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
-                }
-
-                DankListView {
-                    anchors.fill: parent
-                    anchors.topMargin: 14
-                    anchors.bottomMargin: 14
-                    anchors.leftMargin: Theme.spacingS
-                    anchors.rightMargin: Theme.spacingS
-                    spacing: 6
-                    model: root.mrsList
-                    clip: true
-                    visible: !root.loading && root.mrsList.length > 0
-                    delegate: GitLabMRItem {
-                        mrData: modelData
-                        accentColor: Theme.secondary
-                    }
-                }
-            }
-
-            // Incidents section
-            StatRow {
-                title: "Incidents"
-                iconName: "warning"
-                count: root.incidentsCount
-                openUrl: root.scopeWebBase() + "/-/issues?state=opened&type[]=INCIDENT&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
-                accentColor: Theme.primary
-                visible: root.showIncidents
-            }
-
-            StyledRect {
-                id: incidentContainer
-                width: parent.width
-                height: root.loading ? 54 : (root.incidentsList.length > 0 ? Math.min(root.incidentsList.length * 40 + (root.incidentsList.length - 1) * 6 + 28, 300) : 54)
-                radius: Theme.cornerRadius * 1.5
-                color: Qt.rgba(Theme.surfaceContainer.r, Theme.surfaceContainer.g, Theme.surfaceContainer.b, 0.5)
-                border.width: 1
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                visible: root.showIncidents && root.incidentsSupported
-                clip: true
-                Behavior on height { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingS
-                    visible: root.loading
-
-                    DankIcon {
-                        name: "sync"
-                        size: 16
-                        color: Theme.primary
-                        anchors.verticalCenter: parent.verticalCenter
-                        RotationAnimation on rotation {
-                            from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: parent.visible
-                        }
-                    }
-                    StyledText { text: "Checking..."; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
-                }
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: Theme.spacingS
-                    visible: !root.loading && root.incidentsList.length === 0
-
-                    DankIcon { name: "check_circle"; size: 16; color: Theme.primary; anchors.verticalCenter: parent.verticalCenter }
-                    StyledText { text: "No active incidents"; color: Theme.surfaceVariantText; font.pixelSize: Theme.fontSizeSmall; anchors.verticalCenter: parent.verticalCenter }
-                }
-
-                DankListView {
-                    anchors.fill: parent
-                    anchors.topMargin: 14
-                    anchors.bottomMargin: 14
-                    anchors.leftMargin: Theme.spacingS
-                    anchors.rightMargin: Theme.spacingS
-                    spacing: 6
-                    model: root.incidentsList
-                    clip: true
-                    visible: !root.loading && root.incidentsList.length > 0
-                    delegate: GitLabIncidentItem {
-                        incidentData: modelData
-                        accentColor: Theme.primary
-                    }
-                }
-            }
-
-            Item {
-                width: parent.width
-                height: Theme.spacingXS
             }
         }
     }
 
-    popoutWidth: 320
+    popoutWidth: 420
     popoutHeight: 0
 }
