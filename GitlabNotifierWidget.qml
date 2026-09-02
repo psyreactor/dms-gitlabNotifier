@@ -200,7 +200,7 @@ PluginComponent {
 
         // 1) Check glab
         Proc.runCommand(null, [root.glabBinary, "--version"], (stdout, exitCode) => {
-            if (gen !== root.refreshEpoch)
+            if (!root || gen !== root.refreshEpoch)
                 return;
 
             if (exitCode !== 0) {
@@ -220,7 +220,7 @@ PluginComponent {
 
             // 2) Check auth
             Proc.runCommand(null, [root.glabBinary, "auth", "status"], (authOut, authExit) => {
-                if (gen !== root.refreshEpoch)
+                if (!root || gen !== root.refreshEpoch)
                     return;
 
                 if (authExit !== 0) {
@@ -243,7 +243,7 @@ PluginComponent {
                 const afterPrereqs = () => {
                     // loadUsername defers this through Qt.callLater, so the
                     // refresh can be superseded between its guard and here.
-                    if (gen !== root.refreshEpoch)
+                    if (!root || gen !== root.refreshEpoch)
                         return;
 
                     if (--pending === 0) root.fetchCounts(gen);
@@ -251,7 +251,7 @@ PluginComponent {
 
                 if (root.showIncidents) {
                     Proc.runCommand(null, [root.glabBinary, "incident", "--help"], (helpOut, helpExit) => {
-                        if (gen !== root.refreshEpoch)
+                        if (!root || gen !== root.refreshEpoch)
                             return;
 
                         root.incidentsSupported = helpExit === 0;
@@ -270,7 +270,7 @@ PluginComponent {
     // run it: that would drive a second, parallel cycle to completeRefresh().
     function loadUsername(gen, cb) {
         Proc.runCommand(null, [root.glabBinary, "api", "user", "--output", "json"], (stdout, exitCode) => {
-            if (gen !== root.refreshEpoch)
+            if (!root || gen !== root.refreshEpoch)
                 return;
 
             if (exitCode === 0 && stdout) {
@@ -351,7 +351,7 @@ PluginComponent {
                         null,
                         [root.glabBinary, "issue", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--output", "json"]),
                         (stdout, exitCode) => {
-                if (gen !== root.refreshEpoch)
+                if (!root || gen !== root.refreshEpoch)
                     return;
 
                 if (exitCode === 0) {
@@ -370,7 +370,7 @@ PluginComponent {
                         null,
                         [root.glabBinary, "mr", "list"].concat(scopeArgs()).concat(["--assignee=@me", "--output", "json"]),
                         (stdout, exitCode) => {
-                if (gen !== root.refreshEpoch)
+                if (!root || gen !== root.refreshEpoch)
                     return;
 
                 if (exitCode === 0) {
@@ -389,7 +389,7 @@ PluginComponent {
                         null,
                         [root.glabBinary, "incident", "list"].concat(scopeArgs()).concat(["--assignee=@me","--output", "json"]),
                         (stdout, exitCode) => {
-                if (gen !== root.refreshEpoch)
+                if (!root || gen !== root.refreshEpoch)
                     return;
 
                 if (exitCode === 0) {
