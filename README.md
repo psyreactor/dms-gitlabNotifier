@@ -7,11 +7,19 @@ Shows a compact badge in the DankBar with counts for Issues, Merge Requests and 
 ## Features
 
 - Badge in the bar showing the total count (issues + MRs + incidents)
-- Popup listing individual issues, merge requests and incidents (clickable) with counts and "open in browser" links
+- Popup header card with your GitLab avatar, username, active item count and the
+  time of the last refresh
+- One card per category — issues, merge requests, incidents — each listing the
+  actual items with their reference, clickable to open in the browser, and with
+  its own header linking to the filtered view on GitLab
+- Lists scroll, with their own scrollbar, past three items
+- Manual refresh with a spinner that tracks the real `glab` calls, and a toast
+  when it completes
+- If your `glab` has no incident support, the incidents card says so rather than
+  taking over the popup's error banner
 - Scope can be configured per Group (`--group`) or per Repo (`--repo`)
 - Uses the authenticated `glab` user for links (retrieved via `glab api user`)
-- Popup header shows your GitLab username and avatar
-- Configurable refresh interval and what to count (issues/mrs/incidents)
+- Configurable refresh interval, time format, and what to count
 
 ## Installation
 
@@ -36,8 +44,12 @@ Then enable the plugin via DMS Settings → Plugins and add the `gitlabNotifier`
 - `Repo`: optional. Used with `--repo <owner/project>` when Group is not set.
 - `glabBinary`: binary name/path (default: `glab`).
 - `gitlabWebUrl`: web base URL (default: `https://gitlab.com`) — used to build links.
-- `refreshInterval`: seconds between automatic refreshes.
-- `Count Issues`, `Count Merge Requests`, `Count Incidents`: toggles to include/exclude categories.
+- `refreshInterval`: seconds between automatic refreshes. Values below 15 are
+  clamped to 15.
+- `Show Issues`, `Show Merge Requests`, `Show Incidents`: toggles to
+  include/exclude each category.
+- `Time Format`: how the last-updated time is rendered in the popup header —
+  system default, 12-hour or 24-hour.
 
 ## Files
 
@@ -60,21 +72,31 @@ This plugin requests:
 
 ## How it works
 
-The plugin executes `glab` commands to obtain counts and user info:
+The plugin executes `glab` commands, in this order:
 
-- Check `glab` binary and authentication: `glab auth status`  
-- Get authenticated username: `glab api user --output json` (parsed for `username`)  
-- Issues count (by repo or group): `glab issue list --repo <repo> --assignee=@me --state opened --output json` (or `--group <group>`)  
-- Merge requests count: `glab mr list --repo <repo> --assignee=@me --state opened --output json`  
-- Incidents count (when supported): `glab incident list --repo <repo> --assignee=@me --state opened --output json`
+- Check the `glab` binary: `glab --version`
+- Check authentication: `glab auth status`
+- Probe for incident support: `glab incident --help`
+- Get the authenticated username and avatar: `glab api user --output json`
+- Issues: `glab issue list --group <group> --assignee=@me --output json`
+- Merge requests: `glab mr list --group <group> --assignee=@me --output json`
+- Incidents, when supported: `glab incident list --group <group> --assignee=@me --output json`
 
-The widget parses JSON, supports NDJSON and numeric output, and falls back gracefully if `incident` command is not available.
+The three list queries take `--repo <owner/project>` instead of `--group` when
+Group is not configured. The widget parses JSON as an array, an object with an
+`items` or `data` array, or NDJSON.
+
+Refreshes are serialised: while one is in flight another is queued rather than
+run in parallel, and a watchdog clears the in-flight state if a command never
+returns.
 
 ## Troubleshooting
 
 - If counts are zero but the CLI shows results, check `glabBinary` setting and ensure `glab` works in a terminal: `glab issue list --group <group> --assignee=@me --output json`  
 - If `glab` is not authenticated, run: `glab auth login`
-- If your `glab` version lacks `incident`, the incidents count will be skipped and a warning will be shown in the popup.
+- If your `glab` version lacks `incident`, the incidents card says so and the
+  category is skipped. The popup's error banner stays free for failures that
+  block the whole refresh.
 
 ## Contributors
 
