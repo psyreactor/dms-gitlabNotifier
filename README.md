@@ -90,6 +90,11 @@ Refreshes are serialised: while one is in flight another is queued rather than
 run in parallel, and a watchdog clears the in-flight state if a command never
 returns.
 
+Each widget instance owns its commands: with the widget on more than one bar, or
+on more than one monitor, the instances query independently and never share a
+result. Work still in flight when a bar is reconfigured or the plugin is
+reloaded is discarded rather than applied to a torn-down widget.
+
 ## Troubleshooting
 
 - If counts are zero but the CLI shows results, check `glabBinary` setting and ensure `glab` works in a terminal: `glab issue list --group <group> --assignee=@me --output json`  
