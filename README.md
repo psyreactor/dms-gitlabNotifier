@@ -20,6 +20,8 @@ Shows a compact badge in the DankBar with counts for Issues, Merge Requests and 
 - Scope can be configured per Group (`--group`) or per Repo (`--repo`)
 - Uses the authenticated `glab` user for links (retrieved via `glab api user`)
 - Configurable refresh interval, time format, and what to count
+- Translated into English, Português (Brasil), Español, Français, 中文（简体）,
+  日本語 and 한국어; follows the DMS/system locale or a language picked in settings
 
 ## Installation
 
@@ -50,12 +52,15 @@ Then enable the plugin via DMS Settings → Plugins and add the `gitlabNotifier`
   include/exclude each category.
 - `Time Format`: how the last-updated time is rendered in the popup header —
   system default, 12-hour or 24-hour.
+- `Language`: `Automatic (system)` follows the DMS/system locale (English as
+  fallback); or pick one of the supported languages explicitly.
 
 ## Files
 
 - `plugin.json` — plugin manifest
 - `GitlabNotifierWidget.qml` — main widget and popup implementation
 - `GitlabNotifierSettings.qml` — settings UI
+- `translations.js` — UI strings for every supported language
 - `gitlab.svg` — bundled GitLab icon used in the bar and popup header
 - `README.md` — this file
 

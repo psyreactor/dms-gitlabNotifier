@@ -7,6 +7,7 @@ import qs.Common
 import qs.Services
 import qs.Widgets
 import qs.Modules.Plugins
+import "./translations.js" as L
 
 PluginComponent {
     id: root
@@ -20,6 +21,12 @@ PluginComponent {
     property string timeFormat: pluginData.timeFormat || "system"
     property string gitlabWebUrl: pluginData.gitlabWebUrl || "https://gitlab.com"
     property int refreshInterval: pluginData.refreshInterval || 60 // seconds
+    property string language: pluginData.language || "auto"
+    readonly property string lang: L.resolve(language, SessionData.locale || Qt.locale().name)
+
+    function tr(key, a, b) {
+        return L.tr(root.lang, key, a, b);
+    }
 
     function asBool(v, defaultValue) {
         if (v === undefined || v === null)
@@ -108,7 +115,7 @@ PluginComponent {
             root.refreshPending = false;
             root.manualRefresh = false;
             root.loading = false;
-            root.setError("Timed out talking to glab. Will retry.");
+            root.setError(root.tr("errTimeout"));
         }
     }
 
@@ -160,7 +167,7 @@ PluginComponent {
         root.lastUpdated = new Date();
 
         if (wasManual && !root.lastError)
-            root.showToast("Refreshed GitLab Data");
+            root.showToast(root.tr("refreshed"));
 
         if (shouldRefresh)
             root.refresh();
@@ -181,7 +188,7 @@ PluginComponent {
         const hasRepo = root.repo && root.repo.trim().length > 0;
 
         if (!hasGroup && !hasRepo) {
-            root.setError("Configure a Group or Repo in settings.");
+            root.setError(root.tr("errScope"));
             root.issuesCount = 0;
             root.mrsCount = 0;
             root.incidentsCount = 0;
@@ -213,7 +220,7 @@ PluginComponent {
                 root.mrsList = [];
                 root.issuesList = [];
                 root.incidentsList = [];
-                root.setError("Could not execute glab. Is it installed and in PATH?");
+                root.setError(root.tr("errGlab"));
                 root.completeRefresh();
                 return;
             }
@@ -231,7 +238,7 @@ PluginComponent {
                     root.incidentsCount = 0;
                     root.mrsList = [];
                     root.issuesList = [];
-                    root.setError("glab is not authenticated. Run: glab auth login");
+                    root.setError(root.tr("errAuth"));
                     root.completeRefresh();
                     return;
                 }
@@ -885,9 +892,8 @@ PluginComponent {
                                 }
 
                                 StyledText {
-                                    text: root.lastUpdated
-                                          ? (root.totalCount + " Active Items • Updated " + root.formatHeaderTime(root.lastUpdated))
-                                          : (root.totalCount + " Active Items")
+                                    readonly property string countText: root.tr(root.totalCount === 1 ? "itemsOne" : "items", root.totalCount)
+                                    text: root.lastUpdated ? root.tr("updatedAt", countText, root.formatHeaderTime(root.lastUpdated)) : countText
                                     font.pixelSize: Theme.fontSizeSmall - 1
                                     color: Theme.primary
                                     opacity: 0.85
@@ -970,36 +976,36 @@ PluginComponent {
                     }
 
                     CategoryCard {
-                        title: "Issues"
+                        title: root.tr("issues")
                         iconName: "bug_report"
                         accentColor: Theme.primary
                         items: root.issuesList
-                        emptyText: "No assigned issues"
-                        loadingText: "Refreshing issues..."
+                        emptyText: root.tr("noIssues")
+                        loadingText: root.tr("refreshingIssues")
                         webUrl: root.scopeWebBase() + "/-/issues?state=opened&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
                         visible: root.showIssues
                     }
 
                     CategoryCard {
-                        title: "Merge Requests"
+                        title: root.tr("mergeRequests")
                         iconName: "merge_type"
                         accentColor: Theme.secondary
                         items: root.mrsList
-                        emptyText: "No assigned merge requests"
-                        loadingText: "Refreshing merge requests..."
+                        emptyText: root.tr("noMRs")
+                        loadingText: root.tr("refreshingMRs")
                         webUrl: root.scopeWebBase() + "/-/merge_requests?state=opened&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
                         visible: root.showMRs
                     }
 
                     CategoryCard {
-                        title: "Incidents"
+                        title: root.tr("incidents")
                         iconName: "e911_emergency"
                         accentColor: Theme.error
                         items: root.incidentsList
-                        emptyText: "No assigned incidents"
-                        loadingText: "Refreshing incidents..."
+                        emptyText: root.tr("noIncidents")
+                        loadingText: root.tr("refreshingIncidents")
                         unsupported: !root.incidentsSupported
-                        unsupportedText: "This glab version has no incident support"
+                        unsupportedText: root.tr("noIncidentSupport")
                         webUrl: root.scopeWebBase() + "/-/issues?state=opened&type[]=INCIDENT&assignee_username=" + (root.username && root.username.length ? root.username : "@me")
                         visible: root.showIncidents
                     }

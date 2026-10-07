@@ -3,10 +3,17 @@ import QtQuick.Layouts
 import qs.Common
 import qs.Widgets
 import qs.Modules.Plugins
+import "./translations.js" as L
 
 PluginSettings {
     id: root
     pluginId: "gitlabNotifier"
+
+    readonly property string lang: L.resolve(languageSetting.value, SessionData.locale || Qt.locale().name)
+
+    function tr(key) {
+        return L.tr(root.lang, key);
+    }
 
     // Section header: icon, title and a one-line explanation of the group.
     component GroupHeader: RowLayout {
@@ -74,22 +81,22 @@ PluginSettings {
         SettingsGroup {
             GroupHeader {
                 iconName: "workspaces"
-                title: "Scope"
-                subtitle: "Where to look for your assigned work. Group takes precedence over Repo."
+                title: root.tr("scopeTitle")
+                subtitle: root.tr("scopeDesc")
             }
 
             StringSetting {
                 settingKey: "group"
-                label: "Group"
-                description: "E.g.: myGroup or myOrg/myGroup. When set, --group is used and Repo is ignored."
+                label: root.tr("groupLabel")
+                description: root.tr("groupDesc")
                 placeholder: "group"
                 defaultValue: ""
             }
 
             StringSetting {
                 settingKey: "repo"
-                label: "Repo (group/project)"
-                description: "E.g.: myGroup/myRepo. Used with --repo when Group is not configured."
+                label: root.tr("repoLabel")
+                description: root.tr("repoDesc")
                 placeholder: "group/project"
                 defaultValue: ""
             }
@@ -98,34 +105,34 @@ PluginSettings {
         SettingsGroup {
             GroupHeader {
                 iconName: "terminal"
-                title: "GitLab CLI"
-                subtitle: "The glab executable and the instance its links point at. Requires glab authenticated."
+                title: root.tr("cliTitle")
+                subtitle: root.tr("cliDesc")
             }
 
             StringSetting {
                 settingKey: "glabBinary"
-                label: "glab binary"
-                description: "Binary name or path to the glab executable (default: glab)."
+                label: root.tr("glabLabel")
+                description: root.tr("glabDesc")
                 placeholder: "glab"
                 defaultValue: "glab"
             }
 
             StringSetting {
                 settingKey: "gitlabWebUrl"
-                label: "GitLab Web URL"
-                description: "Base URL to open links in the browser (default: https://gitlab.com)."
+                label: root.tr("webUrlLabel")
+                description: root.tr("webUrlDesc")
                 placeholder: "https://gitlab.com"
                 defaultValue: "https://gitlab.com"
             }
 
             SliderSetting {
                 settingKey: "refreshInterval"
-                label: "Refresh Interval"
-                description: "Frequency of GitLab data background updates in seconds (minimum: 15s)."
+                label: root.tr("intervalLabel")
+                description: root.tr("intervalDesc")
                 defaultValue: 60
                 minimum: 15
                 maximum: 3600
-                unit: "sec"
+                unit: root.tr("unitSec")
                 leftIcon: "schedule"
             }
         }
@@ -133,28 +140,28 @@ PluginSettings {
         SettingsGroup {
             GroupHeader {
                 iconName: "visibility"
-                title: "Categories"
-                subtitle: "Which sections appear in the popout and count towards the bar badge."
+                title: root.tr("categoriesTitle")
+                subtitle: root.tr("categoriesDesc")
             }
 
             ToggleSetting {
                 settingKey: "showIssues"
-                label: "Show Issues"
-                description: "Include issues assigned to your user."
+                label: root.tr("showIssuesLabel")
+                description: root.tr("showIssuesDesc")
                 defaultValue: true
             }
 
             ToggleSetting {
                 settingKey: "showMRs"
-                label: "Show Merge Requests"
-                description: "Include merge requests assigned to your user."
+                label: root.tr("showMRsLabel")
+                description: root.tr("showMRsDesc")
                 defaultValue: true
             }
 
             ToggleSetting {
                 settingKey: "showIncidents"
-                label: "Show Incidents"
-                description: "Include incidents assigned to your user, when glab supports them."
+                label: root.tr("showIncidentsLabel")
+                description: root.tr("showIncidentsDesc")
                 defaultValue: true
             }
         }
@@ -162,20 +169,37 @@ PluginSettings {
         SettingsGroup {
             GroupHeader {
                 iconName: "schedule"
-                title: "Display"
-                subtitle: "How timestamps are rendered in the popout header."
+                title: root.tr("displayTitle")
+                subtitle: root.tr("displayDesc")
             }
 
             SelectionSetting {
                 settingKey: "timeFormat"
-                label: "Time Format"
-                description: "Choose time format for the last-updated indicator."
+                label: root.tr("timeFormatLabel")
+                description: root.tr("timeFormatDesc")
                 options: [
-                    {label: "System Default", value: "system"},
-                    {label: "12-Hour", value: "12h"},
-                    {label: "24-Hour", value: "24h"}
+                    {label: root.tr("systemDefault"), value: "system"},
+                    {label: root.tr("hour12"), value: "12h"},
+                    {label: root.tr("hour24"), value: "24h"}
                 ]
                 defaultValue: "system"
+            }
+        }
+
+        SettingsGroup {
+            GroupHeader {
+                iconName: "translate"
+                title: root.tr("languageTitle")
+                subtitle: root.tr("languageDesc")
+            }
+
+            SelectionSetting {
+                id: languageSetting
+                settingKey: "language"
+                label: root.tr("languageLabel")
+                description: root.tr("languageHint")
+                options: [{label: root.tr("languageAuto"), value: "auto"}].concat(L.languages)
+                defaultValue: "auto"
             }
         }
     }
